@@ -1,9 +1,9 @@
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.textinput import TextInput 
+from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
-from functools import partial
 from kivy.uix.label import Label
+from kivy.uix.scrollview import ScrollView
 from kivy.core.window import Window
 from kivy.clock import Clock
 from kivy.utils import get_color_from_hex
@@ -12,7 +12,7 @@ from random import randint
 import os
 import json
 import webbrowser
-from kivy.utils import platform
+
 HIGHSCORE_FILE = "highscores.json"
 
 #if platform == "android":
@@ -54,6 +54,7 @@ class MathTrainer(App):
         self.result_reset_timer = None
         self.category = None
         self.points = 0
+        self.question = None
         self.time_left = 300
         self.current_question = None
         self.previous_question = ""
@@ -69,10 +70,13 @@ class MathTrainer(App):
 
         self.layout.add_widget(Label(text="Über dieses Programm", font_size=scale_font(28)))
         self.layout.add_widget(Label(text="Autor: Arnd", font_size=scale_font(24)))
-        self.layout.add_widget(Label(text="Tester: Jona", font_size=scale_font(24)))
-        self.layout.add_widget(Label(text="Version: 0.4", font_size=scale_font(24)))
+        self.layout.add_widget(Label(text="Tester: Jona, Vincent", font_size=scale_font(24)))
+        self.layout.add_widget(Label(text="Version: 0.5", font_size=scale_font(24)))
 
-        support_btn = Button(text="Unterstützen", font_size=scale_font(24), on_press=self.open_support_link)
+        license_btn = Button(text="Lizenz", font_size=scale_font(24), on_press=self.show_license)
+        self.layout.add_widget(license_btn)
+
+        support_btn = Button(text="Unterstütze meinen Verein", font_size=scale_font(24), on_press=self.open_support_link)
         self.layout.add_widget(support_btn)
 
         back_btn = Button(text="Zurück", font_size=24, on_press=self.return_to_main_menu)
@@ -103,7 +107,7 @@ class MathTrainer(App):
     def save_highscore(self, instance):
         """Saves the highscore with date & time, then shows the leaderboard if player made it."""
         player_name = str(self.name_input.text).strip() if str(self.name_input.text).strip() else "Anonym"
-        timestamp = datetime.now().strftime("%d.%m.%Y %H:%M")  # ✅ Format: DD.MM.YYYY HH:MM
+        timestamp = datetime.now().strftime("%d.%m.%Y %H:%M")  #  Format: DD.MM.YYYY HH:MM
 
         if self.category not in self.highscores:
             self.highscores[self.category] = []
@@ -116,13 +120,13 @@ class MathTrainer(App):
 
         self.highscores[self.category].append(new_entry)
 
-        # ✅ Sort & limit to top 10
+        #  Sort & limit to top 10
         self.highscores[self.category] = sorted(self.highscores[self.category], key=lambda x: x["points"], reverse=True)[:10]
 
         with open(HIGHSCORE_FILE, "w") as file:
             json.dump(self.highscores, file, indent=4)
 
-        # ✅ Check if player made it into the top 10, then show highscore
+        #  Check if player made it into the top 10, then show highscore
         if new_entry in self.highscores[self.category]:
             self.show_highscore(self.category, new_entry)
         else:
@@ -131,7 +135,7 @@ class MathTrainer(App):
     def main_menu(self):
         self.layout = BoxLayout(orientation="vertical")
 
-        title = Label(text="Rechentrainer", font_size=scale_font(32))
+        title = Label(text="JonTrain Rechentrainer", font_size=scale_font(32))
         self.layout.add_widget(title)
 
         for cat_name, cat_key in CATEGORIES.items():
@@ -148,18 +152,18 @@ class MathTrainer(App):
     def show_highscore(self, category, new_entry=None):
         """Displays the highscore list with rank, name, time, and date. Highlights new entry if applicable."""
         self.layout.clear_widgets()
-        self.layout.add_widget(Label(text=f"🏆 Highscores für {category}", font_size=scale_font(28)))
+        self.layout.add_widget(Label(text=f"Highscores für {category}", font_size=scale_font(28)))
 
         scores = self.highscores.get(category, [])
         
         if scores:
             for rank, score in enumerate(scores, start=1):
-                highlight = "[b]" if score == new_entry else ""  # ✅ Highlight new score
+                highlight = "[b]" if score == new_entry else ""  #  Highlight new score
                 reset = "[/b]" if score == new_entry else ""
                 self.layout.add_widget(Label(
                     text=f"{highlight}#{rank} {score['name']} - {score['points']} Punkte ({score['date']}){reset}",
                     font_size=scale_font(24),
-                    markup=True  # ✅ Allows bold formatting
+                    markup=True  #  Allows bold formatting
                 ))
         else:
             self.layout.add_widget(Label(text="Keine Einträge vorhanden", font_size=scale_font(24)))
@@ -169,10 +173,10 @@ class MathTrainer(App):
 
     def return_to_main_menu(self, instance=None):
         """Fix for returning to the main menu properly."""
-        self.layout.clear_widgets()  # ✅ Ensure the UI is fully reset
-        self.main_menu()  # ✅ Rebuild the main menu properly
-        self.root.clear_widgets()  # ✅ Fix for blank screen issue
-        self.root.add_widget(self.layout)  # ✅ Ensure layout is reattached to the screen
+        self.layout.clear_widgets()  #  Ensure the UI is fully reset
+        self.main_menu()  #  Rebuild the main menu properly
+        self.root.clear_widgets()  #  Fix for blank screen issue
+        self.root.add_widget(self.layout)  #  Ensure layout is reattached to the screen
 
     def start_training(self, category):
         self.category = category
@@ -180,14 +184,31 @@ class MathTrainer(App):
         self.time_left = 300
         self.layout.clear_widgets()
 
-        self.prev_question_label = Label(text="", font_size=scale_font(24))
-        self.layout.add_widget(self.prev_question_label)
+        top_bar = BoxLayout()
 
+        left_spacer = Label(size_hint_x=0.15)
+        self.prev_question_label = Label(text="", font_size=scale_font(24), halign="left")
+        exit_btn = Button(text="X", font_size=scale_font(16), size_hint_x=0.15, on_press=self.return_to_main_menu)
+        
+        top_bar.add_widget(left_spacer)
+        top_bar.add_widget(self.prev_question_label )
+        top_bar.add_widget(exit_btn)
+        self.layout.add_widget(top_bar)
+
+        separator = Label(text="―" * 50, font_size=scale_font(16), size_hint_y=None, height=scale_font(8))
+        self.layout.add_widget(separator)
+        
+  
+        self.question = None 
         self.question_label = Label(text="", font_size=scale_font(28))
         self.layout.add_widget(self.question_label)
 
         self.answer_label = Label(text="", font_size=scale_font(28))
         self.layout.add_widget(self.answer_label)
+        
+        separator2 = Label(text="―" * 50, font_size=scale_font(16), size_hint_y=None, height=scale_font(8))
+        self.layout.add_widget(separator2)
+        
 
         self.button_refs = {"tens": None, "ones": None, "remainder": None}
 
@@ -226,27 +247,30 @@ class MathTrainer(App):
 
     def generate_question(self):
         """Picks a random case (1-10) and retries until a valid question is generated."""
-        while True:  # ✅ Keep retrying until a valid question is found
-            case = randint(1, 10)  # ✅ Pick a random case 1-10
+        while True:  #  Keep retrying until a valid question is found
+            case = randint(1, 10)  #  Pick a random case 1-10
 
             if case < 5 and self.category in ["mult", "mult_div", "all"]:
                 a, b = randint(1, 10), randint(1, 10)
                 self.current_question = (a, b, "mult")
+                self.question = f"{a} × {b}"
                 self.question_label.text = f"Was ist {a} × {b}?"
-                break  # ✅ Valid, exit loop
+                break  #  Valid, exit loop
 
             elif case < 8 and self.category in ["div", "mult_div", "div_divrest", "all"]:
                 a, b = randint(1, 10), randint(1, 10)
                 self.current_question = (a * b, b, "div")
+                self.question = f"{a * b} ÷ {b}"
                 self.question_label.text = f"Was ist {a * b} ÷ {b}?"
-                break  # ✅ Valid, exit loop
+                break  #  Valid, exit loop
 
             elif case >= 8 and self.category in ["div_rest", "div_divrest", "all"]:
                 a, b = randint(1, 10), randint(2, 10)
                 remainder = randint(0, b - 1)
                 self.current_question = (a * b + remainder, b, remainder, "div_rest")
+                self.question = f"{a * b + remainder} ÷ {b}"
                 self.question_label.text = f"Was ist {a * b + remainder} ÷ {b}?"
-                break  # ✅ Valid, exit loop
+                break  #  Valid, exit loop
 
     def toggle_input(self, instance, group):
         """Ensures only one button per category is selected at a time"""
@@ -293,17 +317,17 @@ class MathTrainer(App):
             points_awarded = 5 if user_answer == correct_answer else -3
 
         if user_answer == correct_answer:
-            result_text = f"RICHTIG! {user_answer[0]}" + (f" R{user_answer[1]}" if user_answer[1] else "")
+            result_text = f"{user_answer[0]}" + (f" R{user_answer[1]}" if user_answer[1] else "") +f" ist RICHTIG!"
             self.points += points_awarded
-            vibrate(1)  # ✅ 1x vibrieren für richtig
-            self.highlight_result((0, 1, 0, 1))  # ✅ Grün für richtig
+            vibrate(1)  #  1x vibrieren für richtig
+            self.highlight_result((0, 1, 0, 1))  #  Grün für richtig
         else:
             correct_text = f"{correct_answer[0]}" + (f" R{correct_answer[1]}" if correct_answer[1] else "")
-            result_text = f"FALSCH! Richtig: {correct_text}"
+            result_text = f"{user_answer[0]}" + (f" R{user_answer[1]}" if user_answer[1] else "") + f" ist FALSCH!\n>>> {self.question} = {correct_text} <<<"
             self.points = max(0, self.points + points_awarded)
-            vibrate(2)  # ✅ 2x vibrieren für falsch
-            self.highlight_result((1, 0, 0, 1))  # ✅ Rot für falsch
-        self.prev_question_label.text = f"{self.question_label.text} = {result_text}"
+            vibrate(2)  #  2x vibrieren für falsch
+            self.highlight_result((1, 0, 0, 1))  #  Rot für falsch
+        self.prev_question_label.text = f"{result_text}"
 
         self.points_label.text = f"Punkte: {self.points}"
 
@@ -314,10 +338,10 @@ class MathTrainer(App):
         """Lässt die Ergebniszeile kurz aufleuchten."""
         self.prev_question_label.color = color
         
-        if self.result_reset_timer:
-            Clock.unschedule(self.result_reset_timer)
+        #if self.result_reset_timer:
+        #    Clock.unschedule(self.result_reset_timer)
 
-        Clock.schedule_once(partial(self.reset_result_color), 2)  # ✅ Zurücksetzen nach 2s
+        #Clock.schedule_once(partial(self.reset_result_color), 1)  #  Zurücksetzen nach 2s
 
     def reset_result_color(self, dt):
         """Setzt die Ergebniszeilenfarbe auf Weiß zurück."""
@@ -345,11 +369,11 @@ class MathTrainer(App):
         submit_btn = Button(text="Speichern", font_size=scale_font(24), on_press=self.save_highscore)
         self.layout.add_widget(submit_btn)
 
-
+  
     def save_highscore(self, instance):
         """Saves the highscore with date & time, then shows the leaderboard if player made it."""
         player_name = str(self.name_input.text).strip() if str(self.name_input.text).strip() else "Anonym"
-        timestamp = datetime.now().strftime("%d.%m.%Y %H:%M")  # ✅ Format: DD.MM.YYYY HH:MM
+        timestamp = datetime.now().strftime("%d.%m.%Y %H:%M")  #  Format: DD.MM.YYYY HH:MM
 
         if self.category not in self.highscores:
             self.highscores[self.category] = []
@@ -357,22 +381,68 @@ class MathTrainer(App):
         new_entry = {
             "name": player_name,
             "points": self.points,
-            "date": timestamp  # ✅ Store date & time properly
+            "date": timestamp  #  Store date & time properly
         }
 
         self.highscores[self.category].append(new_entry)
 
-        # ✅ Sort & limit to top 10
+        #  Sort & limit to top 10
         self.highscores[self.category] = sorted(self.highscores[self.category], key=lambda x: x["points"], reverse=True)[:10]
 
         with open(HIGHSCORE_FILE, "w") as file:
-            json.dump(self.highscores, file, indent=4)  # ✅ JSON now stores date & time
+            json.dump(self.highscores, file, indent=4)  #  JSON now stores date & time
 
-        # ✅ Show highscore if player made it into the top 10
+        #  Show highscore if player made it into the top 10
         if new_entry in self.highscores[self.category]:
             self.show_highscore(self.category, new_entry)
         else:
             self.main_menu()  # If not in top 10, return to main menu
+
+
+    def show_license(self, instance):
+        self.layout.clear_widgets()
+        self.layout.add_widget(Label(text="Lizenz (Deutsche Freie Software Lizenz)", font_size=scale_font(28)))
+
+        license_text = """\
+    DEUTSCHE FREIE SOFTWARE LIZENZ (DFSL)
+
+    Präambel:
+    Diese Lizenz erlaubt es Ihnen, die Software frei zu nutzen, zu studieren, zu verändern und weiterzugeben, solange die Freiheit der Software erhalten bleibt.
+
+    1. Nutzungsrecht:
+    - Jeder darf die Software für beliebige Zwecke verwenden, ohne Einschränkung.
+
+    2. Verbreitung:
+    - Die Software darf in unveränderter oder modifizierter Form weitergegeben werden.
+    - Der Lizenztext muss mitgeliefert werden.
+    - Änderungen müssen gekennzeichnet und unter derselben Lizenz veröffentlicht werden.
+
+    3. Gewährleistungsausschluss:
+    - Diese Software wird ohne Garantie bereitgestellt.
+    - Der Autor übernimmt keine Haftung für Schäden, die durch die Nutzung der Software entstehen.
+
+    4. Freiheitserhalt:
+    - Diese Lizenz darf nicht durch andere Lizenzen ersetzt werden, die die Freiheit der Software einschränken.
+
+    Weitere Details finden Sie unter https://dfsl.de
+    """
+
+        # ScrollView für den langen Lizenztext
+        scroll = ScrollView(size_hint=(1, 0.85))  # 85% der Höhe für den Text
+        license_label = Label(text=license_text, font_size=scale_font(16), 
+                            halign="left", valign="top", text_size=(Window.width - 40, None), 
+                            size_hint_y=None)
+
+        # Automatische Anpassung der Höhe des Labels
+        license_label.bind(texture_size=lambda instance, value: setattr(instance, 'height', value[1]))
+        scroll.add_widget(license_label)
+
+        # Zurück-Button
+        back_btn = Button(text="Zurück", font_size=scale_font(24), size_hint=(1, 0.15), on_press=self.show_about)
+
+        # Lizenz-Text in ScrollView + Zurück-Button in die Hauptansicht einfügen
+        self.layout.add_widget(scroll)
+        self.layout.add_widget(back_btn)
 
 
 
