@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y ffmpeg libsm6 libxext6
+          sudo apt install -y ffmpeg libsm6 libxext6 aidl
           python -m pip install --upgrade pip
           pip install cython virtualenv
 
@@ -32,20 +32,6 @@ jobs:
         run: |
           pip install buildozer
 
-      - name: Install Android SDK and Dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y openjdk-11-jdk unzip
-          export ANDROID_HOME=$HOME/android-sdk
-          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
-          mkdir -p $ANDROID_HOME/cmdline-tools/latest
-          curl -o sdk-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
-          unzip sdk-tools.zip -d $ANDROID_HOME/cmdline-tools/latest
-          rm sdk-tools.zip
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0"
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH" >> $GITHUB_ENV
 
       - name: Build APK
         run: |
