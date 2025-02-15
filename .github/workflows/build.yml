@@ -32,6 +32,15 @@ jobs:
         run: |
           pip install buildozer
 
+      - name: Install Android SDK dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y openjdk-11-jdk
+          mkdir -p ~/.android
+          touch ~/.android/repositories.cfg
+          yes | sdkmanager --licenses
+          yes | sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0" "cmdline-tools;latest" "tools" "extras;google;market_licensing"
+
       - name: Build APK
         run: |
           echo y | buildozer -v android debug
