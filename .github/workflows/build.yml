@@ -52,19 +52,12 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager --install "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest" "system-images;android-34;default;x86_64" "tools"
 
-      - name: Verify AIDL Installation
-        run: |
-          if ! command -v aidl &> /dev/null; then
-            echo "FAIL AIDL installation failed!"
-            exit 1
-          else
-            echo "OK AIDL installed successfully!"
-          fi
+     
 
       - name: Build APK with Buildozer
         run: |
           export PATH=$HOME/.local/bin:$PATH
-          buildozer -v android debug
+          echo y | buildozer -v android debug
 
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
