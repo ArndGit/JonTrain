@@ -13,6 +13,7 @@ import os
 import json
 import webbrowser
 
+__version__ = "0.7"
 HIGHSCORE_FILE = "highscores.json"
 
 #if platform == "android":
@@ -68,10 +69,10 @@ class MathTrainer(App):
         """Displays an 'Über' screen with app info and a back button."""
         self.layout.clear_widgets()
 
-        self.layout.add_widget(Label(text="Über dieses Programm", font_size=scale_font(28)))
+        self.layout.add_widget(Label(text="Über JonTrain", font_size=scale_font(28)))
         self.layout.add_widget(Label(text="Autor: Arnd", font_size=scale_font(24)))
-        self.layout.add_widget(Label(text="Tester: Jona, Vincent", font_size=scale_font(24)))
-        self.layout.add_widget(Label(text="Version: 0.5", font_size=scale_font(24)))
+        self.layout.add_widget(Label(text="Tester: Jona, Vincent, Ben", font_size=scale_font(24)))
+        self.layout.add_widget(Label(text=f"Version: {__version__}", font_size=scale_font(24)))
 
         license_btn = Button(text="Lizenz", font_size=scale_font(24), on_press=self.show_license)
         self.layout.add_widget(license_btn)
@@ -152,7 +153,7 @@ class MathTrainer(App):
     def show_highscore(self, category, new_entry=None):
         """Displays the highscore list with rank, name, time, and date. Highlights new entry if applicable."""
         self.layout.clear_widgets()
-        self.layout.add_widget(Label(text=f"Highscores für {category}", font_size=scale_font(28)))
+        self.layout.add_widget(Label(text=f"Rangliste für {next(key for key, value in CATEGORIES.items() if value == category)}", font_size=scale_font(28)))
 
         scores = self.highscores.get(category, [])
         
@@ -173,6 +174,7 @@ class MathTrainer(App):
 
     def return_to_main_menu(self, instance=None):
         """Fix for returning to the main menu properly."""
+        Clock.unschedule(self.update_timer)
         self.layout.clear_widgets()  #  Ensure the UI is fully reset
         self.main_menu()  #  Rebuild the main menu properly
         self.root.clear_widgets()  #  Fix for blank screen issue
