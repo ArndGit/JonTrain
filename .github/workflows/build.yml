@@ -12,32 +12,61 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.9"
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.9"
 
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y ffmpeg libsm6 libxext6
-          python -m pip install --upgrade pip
-          pip install cython virtualenv
+    - name: Install Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y python3-pip python3-setuptools python3-venv git unzip openjdk-11-jdk
+        pip3 install --upgrade pip
+        pip3 install --user --upgrade Cython virtualenv buildozer
 
-      - name: Install Buildozer
-        run: |
-          pip install buildozer
+    - name: Install Android SDK and AIDL
+      run: |
+        sudo apt install -y android-sdk android-sdk-platform-tools android-sdk-build-tools
+        export ANDROID_HOME=$HOME/.android-sdk
+        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+        mkdir -p $ANDROID_HOME/cmdline-tools
+        cd $ANDROID_HOME/cmdline-tools
+        wget https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
+        unzip commandlinetools-linux-10406996_latest.zip -d $ANDROID_HOME/cmdline-tools
+        mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+        rm commandlinetools-linux-10406996_latest.zip
+        yes | sdkmanager --licenses
+        sdkmanager --install "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest" "system-images;android-34;default;x86_64" "tools"
 
-      - name: Build APK
-        run: |
-          buildozer -v android debug
+    - name: Set up Buildozer
+      run: |
+        export PATH=$HOME/.local/bin:$PATH
+        echo "export PATH=$HOME/.local/bin:$PATH" >> $HOME/.bashrc
+        source $HOME/.bashrc
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: built-apk-${{ github.ref_name }}
-          path: bin/*.apk
+    - name: Initialize Buildozer (If Not Exists)
+      run: |
+        if [ ! -f buildozer.spec ]; then
+          buildozer init
+        else
+          echo "buildozer.spec already exists, skipping initialization."
+        fi
+
+    - name: Build APK
+      run: |
+        export PATH=$HOME/.local/bin:$PATH
+        export ANDROID_HOME=$HOME/.android-sdk
+        export ANDROID_SDK_ROOT=$ANDROID_HOME
+        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/34.0.0:$PATH
+        buildozer -v android debug
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: built-apk
+        path: bin/*.apk
