@@ -38,8 +38,8 @@ jobs:
           sudo apt install -y openjdk-11-jdk
           mkdir -p ~/.android
           touch ~/.android/repositories.cfg
-          yes | sdkmanager --licenses
-          yes | sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0" "cmdline-tools;latest" "tools" "extras;google;market_licensing"
+          yes | sdkmanager --licenses || true
+          yes | sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0" "cmdline-tools;latest" "tools" "extras;google;market_licensing" || true
 
       - name: Build APK
         run: |
