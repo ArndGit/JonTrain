@@ -8,7 +8,6 @@ on:
     branches:
       - '**'  # Runs on all PRs targeting any branch
   workflow_dispatch:
-name: Build Android APK
 
 jobs:
   build:
