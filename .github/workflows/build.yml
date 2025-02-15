@@ -1,0 +1,44 @@
+name: Build APK with Buildozer
+
+on:
+  push:
+    branches:
+      - '**'  # Runs on all branches
+  pull_request:
+    branches:
+      - '**'  # Runs on all PRs targeting any branch
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.9"
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg libsm6 libxext6
+          python -m pip install --upgrade pip
+          pip install cython virtualenv
+
+      - name: Install Buildozer
+        run: |
+          pip install buildozer
+          buildozer init
+
+      - name: Build APK
+        run: |
+          buildozer -v android debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-apk-${{ github.ref_name }}
+          path: bin/*.apk
