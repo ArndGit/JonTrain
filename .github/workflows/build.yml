@@ -12,6 +12,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y ffmpeg libsm6 libxext6 aidl
+          sudo apt install -y openjdk-17-jdk zip unzip ffmpeg libsm6 libxext6 aidl
           python -m pip install --upgrade pip
           pip install cython virtualenv
 
@@ -34,28 +35,26 @@ jobs:
       - name: Accept Android SDK Licenses
         run: yes | sdkmanager --licenses
 
-
       - name: Install Required Android SDK Components
         run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" 
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" "ndk;26.3.11579264"
 
-      - name: Set Android SDK Environment Variables
+      - name: Ensure Buildozer Uses System SDK
         run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
           echo "PATH=$ANDROID_SDK_ROOT/build-tools/34.0.0:$ANDROID_SDK_ROOT/platform-tools:$PATH" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
 
-      - name: Verify Android SDK Installation
-        run: sdkmanager --list
-
-      - name: Install Buildozer
+      - name: Install Buildozer from Source
         run: |
-          pip install buildozer
+          pip uninstall -y buildozer
+          git clone --depth=1 https://github.com/kivy/buildozer.git
+          cd buildozer
+          pip install -e .
 
-
-      - name: Build APK
-        run: |
-          buildozer -v android debug
+      - name: Build APK with Buildozer
+        run: buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
