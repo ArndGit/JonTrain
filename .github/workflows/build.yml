@@ -28,24 +28,7 @@ jobs:
           sudo apt install -y openjdk-17-jdk zip unzip ffmpeg libsm6 libxext6 aidl
           python -m pip install --upgrade pip
           pip install cython virtualenv
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
-
-      - name: Accept Android SDK Licenses
-        run: yes | sdkmanager --licenses
-
-      - name: Install Required Android SDK Components
-        run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" "ndk;26.3.11579264"
-
-      - name: Ensure Buildozer Uses System SDK
-        run: |
-          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
-          echo "PATH=$ANDROID_SDK_ROOT/build-tools/34.0.0:$ANDROID_SDK_ROOT/platform-tools:$PATH" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.3.11579264" >> $GITHUB_ENV
-
+          
       - name: Install Buildozer from Source
         run: |
           pip uninstall -y buildozer
@@ -54,7 +37,7 @@ jobs:
           pip install -e .
 
       - name: Build APK with Buildozer
-        run: buildozer -v android debug
+        run: yes | buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
