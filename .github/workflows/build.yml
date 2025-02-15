@@ -15,41 +15,6 @@ jobs:
 
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v3
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.9"
-
-    - name: Install Dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y python3-pip python3-setuptools python3-venv git unzip openjdk-11-jdk
-        pip3 install --upgrade pip
-        pip3 install --user --upgrade Cython virtualenv buildozer
-
-    - name: Install Android SDK and AIDL
-      run: |
-        sudo apt install -y android-sdk android-sdk-platform-tools android-sdk-build-tools
-        export ANDROID_HOME=$HOME/.android-sdk
-        export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
-        mkdir -p $ANDROID_HOME/cmdline-tools
-        cd $ANDROID_HOME/cmdline-tools
-        wget https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
-        unzip commandlinetools-linux-10406996_latest.zip -d $ANDROID_HOME/cmdline-tools
-        mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-        rm commandlinetools-linux-10406996_latest.zip
-        yes | sdkmanager --licenses
-        sdkmanager --install "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest" "system-images;android-34;default;x86_64" "tools"
-
-    - name: Set up Buildozer
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout Repository
       uses: actions/checkout@v4
 
     - name: Set up Python
