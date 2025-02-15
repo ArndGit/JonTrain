@@ -28,6 +28,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install cython virtualenv
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+
       - name: Install Buildozer
         run: |
           pip install buildozer
@@ -35,7 +38,7 @@ jobs:
 
       - name: Build APK
         run: |
-          yes | buildozer -v android debug
+          buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
