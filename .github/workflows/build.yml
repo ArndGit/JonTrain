@@ -26,15 +26,21 @@ jobs:
           sudo apt update
           sudo apt install -y ffmpeg libsm6 libxext6 autoconf automake libtool
           python -m pip install --upgrade pip
-          pip install cython virtualenv
+          python -m pip install --upgrade Cython==0.29.33 virtualenv
+          
 
       - name: Install Buildozer
         run: |
-          pip install buildozer
+          #pip install buildozer
+          git clone https://github.com/kivy/buildozer
+          cd buildozer/
+          python setup.py build
+          pip install -e
+          cd ..
 
       - name: Build APK
         run: |
-          yes | buildozer -v android debug
+          yes | ~/.local/bin/buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
