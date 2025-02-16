@@ -8,28 +8,36 @@ on:
     branches:
       - '**'  # Runs on all PRs targeting any branch
   workflow_dispatch:
-  
+
 jobs:
-  # Build job. Builds app for Android with Buildozer
-  build-android:
-    name: Build for Android
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Build with Buildozer
-        uses: ArtemSBulgakov/buildozer-action@v1
-        id: buildozer
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          workdir: .
-          buildozer_version: stable
+          python-version: "3.9"
 
-      - name: Upload artifacts
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg libsm6 libxext6
+          python -m pip install --upgrade pip
+          pip install cython virtualenv
+
+      - name: Install Buildozer
+        run: |
+          pip install buildozer
+
+      - name: Build APK
+        run: |
+          yes | buildozer -v android debug
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: package
-          path: ${{ steps.buildozer.outputs.filename }}
-          
-          
+          name: built-apk-${{ github.ref_name }}
+          path: bin/*.apk
