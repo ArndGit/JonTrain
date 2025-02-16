@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y ffmpeg libsm6 libxext6
+          sudo apt install -y ffmpeg libsm6 libxext6 autoconf automake libtool
           python -m pip install --upgrade pip
           pip install cython virtualenv
 
