@@ -1,0 +1,26 @@
+"Copyright (C) 2025 Arnd Brandes.
+ Dieses Programm kann durch jedermann gemäß den Bestimmungen der Deutschen Freien Software Lizenz genutzt werden.
+
+ DEUTSCHE FREIE SOFTWARE LIZENZ (DFSL)
+
+
+
+    Präambel:
+    Diese Lizenz erlaubt es Ihnen, die Software frei zu nutzen, zu studieren, zu verändern und weiterzugeben, solange die Freiheit der Software erhalten bleibt.
+
+    1. Nutzungsrecht:
+    - Jeder darf die Software für beliebige Zwecke verwenden, ohne Einschränkung.
+
+    2. Verbreitung:
+    - Die Software darf in unveränderter oder modifizierter Form weitergegeben werden.
+    - Der Lizenztext muss mitgeliefert werden.
+    - Änderungen müssen gekennzeichnet und unter derselben Lizenz veröffentlicht werden.
+
+    3. Gewährleistungsausschluss:
+    - Diese Software wird ohne Garantie bereitgestellt.
+    - Der Autor übernimmt keine Haftung für Schäden, die durch die Nutzung der Software entstehen.
+
+    4. Freiheitserhalt:
+    - Diese Lizenz darf nicht durch andere Lizenzen ersetzt werden, die die Freiheit der Software einschränken.
+
+    Weitere Details finden Sie unter https://dfsl.de

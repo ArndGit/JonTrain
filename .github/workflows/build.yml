@@ -3,10 +3,10 @@ name: Build APK with Buildozer
 on:
   push:
     branches:
-      - '**'  # Runs on all branches
+      - main  # Runs on all branches
   pull_request:
     branches:
-      - '**'  # Runs on all PRs targeting any branch
+      - main  # Runs on all PRs targeting any branch
   workflow_dispatch:
 jobs:
   build:

@@ -1,3 +1,6 @@
+# Copyright (C) 2025 Arnd Brandes.
+# Dieses Programm kann durch jedermann gemäß den Bestimmungen der Deutschen Freien Software Lizenz genutzt werden.
+
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.textinput import TextInput
@@ -405,7 +408,10 @@ class MathTrainer(App):
         self.layout.clear_widgets()
         self.layout.add_widget(Label(text="Lizenz (Deutsche Freie Software Lizenz)", font_size=scale_font(28)))
 
-        license_text = """\
+        license_text = """\     
+    Copyright (C) 2025 Arnd Brandes.
+    Dieses Programm kann durch jedermann gemäß den Bestimmungen der Deutschen Freien Software Lizenz genutzt werden.
+
     DEUTSCHE FREIE SOFTWARE LIZENZ (DFSL)
 
     Präambel:
