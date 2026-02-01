@@ -50,28 +50,6 @@ jobs:
             liblzma-dev \
             libbz2-dev
 
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            echo "sdkmanager not found at: $SDKMANAGER"
-            find "${ANDROID_SDK_ROOT}" -maxdepth 4 -type f -name sdkmanager -print || true
-            exit 1
-          fi
-
-          set +o pipefail
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          set -o pipefail
-
-          "$SDKMANAGER" "platform-tools" "platforms;android-33" "build-tools;33.0.2"
-
-
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
         with:

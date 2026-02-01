@@ -109,12 +109,12 @@ android.permissions = android.permission.VIBRATE, (name=android.permission.WRITE
 # (list) features (adds uses-feature -tags to manifest)
 #android.features = android.hardware.usb.host
 
-android.sdk_path = /usr/local/lib/android/sdk
-android.ndk_path = /usr/local/lib/android/sdk/ndk/27.3.13750724
+#android.sdk_path = /usr/local/lib/android/sdk
+#android.ndk_path = /usr/local/lib/android/sdk/ndk/27.3.13750724
 
-android.api = 33
-android.minapi = 21
-android.ndk_api = 21
+#android.api = 33
+#android.minapi = 21
+#android.ndk_api = 21
 
 # (int) Target Android API, should be as high as possible.
 #android.api = 33
