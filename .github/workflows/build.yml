@@ -77,7 +77,9 @@ jobs:
           export ANDROID_HOME="$SDKROOT"
           export PATH="$SDKROOT/cmdline-tools/latest/bin:$SDKROOT/platform-tools:$PATH"
 
+          set +o pipefail
           yes | sdkmanager --licenses
+          set -o pipefail
           sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
           # Show installed targets for debugging
