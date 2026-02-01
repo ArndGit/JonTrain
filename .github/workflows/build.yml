@@ -50,15 +50,6 @@ jobs:
             liblzma-dev \
             libbz2-dev
 
-      - name: Install Android SDK platform (API 31)
-        run: |
-          set -e
-          SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          fi
-          yes | "$SDKMANAGER" --licenses
-          "$SDKMANAGER" "platform-tools" "platforms;android-31" "build-tools;31.0.0"
 
 
       - name: Set up uv
