@@ -30,7 +30,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Wichtig: bringt sdkmanager in PATH
       - name: Setup Android SDK (cmdline-tools)
         uses: android-actions/setup-android@v3
 
@@ -60,8 +59,9 @@ jobs:
           path: |
             ~/.buildozer
             .buildozer
-          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}-${{ github.ref_name }}
           restore-keys: |
+            buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}-
             buildozer-${{ runner.os }}-
 
       - name: Install uv + build tools
@@ -72,16 +72,22 @@ jobs:
           . .venv/bin/activate
           uv pip install -U buildozer "cython==0.29.33"
 
+      # "Sauber" ohne buildozer android clean (das scheitert wenn p4a noch nicht da ist)
+      - name: Reset local build folders (optional)
+        run: |
+          rm -rf .buildozer/android/platform/build-* || true
+          rm -rf .buildozer/android/app || true
+          rm -rf bin || true
+
       - name: Build APK (debug)
         run: |
           . .venv/bin/activate
-          buildozer -v android clean
           buildozer -v android debug
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: jontrain-apk
+          name: jontrain-artifacts
           path: |
             bin/*.apk
             .buildozer/android/platform/build-*/logs/*
