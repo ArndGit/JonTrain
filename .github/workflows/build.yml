@@ -3,41 +3,33 @@ name: Android (Buildozer)
 on:
   workflow_dispatch:
   push:
-    branches: ["**"]
+    branches: ["main", "feature/**"]
   pull_request:
 
 jobs:
   build-android:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
 
     env:
-      # Pin API/minAPI in one place (buildozer.spec should match, but this helps tools too)
-      ANDROIDAPI: "33"
-      ANDROIDMINAPI: "21"
-
-      # Use the system Android SDK installed on GitHub-hosted runners (avoid buildozer's private SDK)
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       ANDROID_HOME: /usr/local/lib/android/sdk
-
-      # Keep Gradle stable + less memory spikes
-      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=512m"
-
-      # Kivy wheels index if needed
-      UV_EXTRA_INDEX_URL: https://kivy.org/downloads/simple/
+      # Wichtige Stellschrauben:
+      ANDROIDAPI: "33"
+      ANDROIDMINAPI: "21"
+      ANDROID_BUILD_TOOLS: "33.0.2"
+      P4A_RELEASE: "0" # debug build; für release/aab später auf 1 + keystore
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Setup Java (17)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
-      - name: Set up Python 3.11
+      - name: Setup Python (3.11)
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -45,85 +37,62 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential git unzip zip \
-            pkg-config autoconf automake libtool \
+          sudo apt-get install -y \
+            build-essential git zip unzip \
             libffi-dev libssl-dev \
-            zlib1g-dev libbz2-dev liblzma-dev \
-            libncurses5-dev libncursesw5-dev \
-            libsqlite3-dev libreadline-dev \
-            openjdk-17-jdk \
-            ccache
+            liblzma-dev zlib1g-dev \
+            pkg-config cmake \
+            autoconf automake libtool \
+            python3-dev
 
-      - name: Cache buildozer/p4a and Gradle
+      - name: Install uv + build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U uv
+          uv venv
+          . .venv/bin/activate
+          uv pip install -U buildozer "cython==0.29.33"
+
+      - name: Ensure Android SDK platform is installed (API 33)
+        run: |
+          sdkmanager --version
+          yes | sdkmanager --licenses
+
+          # Plattformen/Build-Tools, die py4a/buildozer wirklich brauchen:
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROIDAPI}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "tools" || true
+
+          sdkmanager --list | sed -n '1,200p'
+
+      - name: Cache Buildozer downloads
         uses: actions/cache@v4
         with:
           path: |
             ~/.buildozer
             .buildozer
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec', 'requirements.txt', 'pyproject.toml', '.github/workflows/build.yml') }}
+          key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
-            ${{ runner.os }}-buildozer-
-
-      - name: Install uv + Python tooling
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade uv
-          uv --version
-          uv venv .venv
-          . .venv/bin/activate
-          uv pip install --upgrade setuptools wheel
-          # Pin cython to the one you already use
-          uv pip install "cython==0.29.33"
-          # Build toolchain
-          uv pip install "buildozer>=1.5" "python-for-android>=2024.0.0"
-
-      - name: Ensure Android SDK packages (API 33) are installed
-        run: |
-          set -euo pipefail
-          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            echo "sdkmanager not found at: $SDKMANAGER"
-            ls -la "$ANDROID_SDK_ROOT/cmdline-tools" || true
-            exit 1
-          fi
-
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-
-          # Install the missing platform that causes: "Requested API target 33 is not available"
-          "$SDKMANAGER" --install \
-            "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.2"
-
-          "$SDKMANAGER" --list | sed -n '1,140p'
+            buildozer-${{ runner.os }}-
 
       - name: Build APK (debug)
         run: |
-          set -euo pipefail
           . .venv/bin/activate
 
-          # Force buildozer to use system SDK (prevents random buildozer-private SDK state)
-          export ANDROIDSDK="$ANDROID_SDK_ROOT"
-          export ANDROIDNDK="$ANDROID_SDK_ROOT/ndk/27.3.13750724"
+          # Optional: falls buildozer.spec in Unterordner liegt:
+          # cd JonTrain
 
-          # Optional: show versions to debug reproducibility
-          buildozer --version || true
-          python -V
-          java -version
-
-          # Clean only the app build dir (keeps cached downloads)
-          buildozer android clean || true
+          # Sauberer, reproduzierbarer Build:
+          buildozer -v android clean
           buildozer -v android debug
-          buildozer -v android release
-          
-      - name: Upload artifacts (APK/AAB)
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: jontrain-android-build
+          name: jontrain-apk
           path: |
             bin/*.apk
-            .buildozer/android/platform/build-*/dists/*/dist/*.apk
-          if-no-files-found: error
+            .buildozer/android/platform/build-*/logs/*
+          if-no-files-found: warn
