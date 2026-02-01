@@ -2,7 +2,7 @@ name: Android (Buildozer)
 
 on:
   push:
-    branches: ["main", "master"]
+    branches: ["main", "feature/*"]
   workflow_dispatch:
 
 jobs:
@@ -10,12 +10,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
-      # uv cache inside repo for caching with actions/cache
       UV_CACHE_DIR: .uv-cache
-      # Kivy wheels index (important to avoid source builds where possible)
       UV_EXTRA_INDEX_URL: https://kivy.org/downloads/simple/
-      # Buildozer / p4a API level (install + use)
       ANDROIDAPI: "33"
+      ANDROIDMINAPI: "21"
 
     steps:
       - name: Checkout
@@ -52,13 +50,17 @@ jobs:
             liblzma-dev \
             libbz2-dev
 
-      - name: Set up Android SDK (for API 33)
+      # Provides sdkmanager under /usr/local/lib/android/sdk/...
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android API 33 platform
+      - name: Install Android API 33 (into the SAME SDK Buildozer will use)
         run: |
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-33"
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
@@ -81,15 +83,8 @@ jobs:
           uv --version
           uv venv
           source .venv/bin/activate
-
-          # Build toolchain
           uv pip install --upgrade pip setuptools wheel
-
-          # Buildozer prerequisites
           uv pip install buildozer "cython==0.29.33"
-
-          # Optional: if you have helper scripts needing deps on the host
-          # (Buildozer uses buildozer.spec requirements inside the Android build)
           if [ -f requirements.txt ]; then
             uv pip install -r requirements.txt || true
           fi
@@ -98,8 +93,13 @@ jobs:
         run: |
           source .venv/bin/activate
 
-          # Ensure buildozer uses repo-local dirs (for caching)
+          # Repo-local buildozer dirs (cache-friendly)
           export BUILDOZER_HOME="${GITHUB_WORKSPACE}/.buildozer_global"
+
+          # CRITICAL: force Buildozer/p4a to use the runner's Android SDK
+          export ANDROID_SDK_ROOT="/usr/local/lib/android/sdk"
+          export ANDROID_HOME="/usr/local/lib/android/sdk"
+          export ANDROIDSDK="/usr/local/lib/android/sdk"
 
           buildozer -v android debug
 
