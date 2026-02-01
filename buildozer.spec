@@ -12,7 +12,7 @@ title = JonTrain
 package.name = jontrain
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = org.test
+package.domain = de.arndbrandes
 
 # (str) Source code where the main.py live
 source.dir = .
@@ -42,7 +42,7 @@ version.filename = main.py
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy 
+requirements = python3,kivy,pyjnius,pyzipper,pycryptodomex
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
