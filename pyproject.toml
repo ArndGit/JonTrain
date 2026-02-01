@@ -6,7 +6,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "kivy",
-  "pyzipper"
+  "pyzipper",
+  "pycryptodome"
 ]
 
 authors = [

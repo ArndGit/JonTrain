@@ -46,7 +46,7 @@ except Exception:
 IS_ANDROID = (kivy_platform == "android")
 
 if IS_ANDROID:
-    from jnius import autoclass  # type: ignore
+    from jnius import autoclass, jarray  # type: ignore
 
     PythonActivity = autoclass("org.kivy.android.PythonActivity")
     Intent = autoclass("android.content.Intent")
@@ -92,7 +92,7 @@ class MathTrainer(App):
         self.category = None
         self.points = 0
         self.question = None
-        self.time_left = 10
+        self.time_left = 13
         self.current_question = None
 
         self.answer = {"tens": "", "ones": "", "remainder": ""}
@@ -319,6 +319,20 @@ class MathTrainer(App):
             json.dump(wrapper, f, indent=4, ensure_ascii=False)
 
     # -------------------------
+    # Android bytes helper (FIX: OutputStream/InputStream + pyjnius)
+    # -------------------------
+    def _to_jbytearray(self, data: bytes):
+        """Convert Python bytes (0..255) to Java byte[] (-128..127) for pyjnius."""
+        if not IS_ANDROID:
+            return data  # type: ignore
+        signed = [b - 256 if b > 127 else b for b in data]
+        return jarray("b")(signed)
+
+    def _bytes_from_jbytearray(self, buf, n: int) -> bytes:
+        """Convert Java byte[] (-128..127) to Python bytes (0..255)."""
+        return bytes(((int(buf[i]) + 256) & 0xFF) for i in range(n))
+
+    # -------------------------
     # Backup (Android SAF file dialogs)
     # -------------------------
     def _set_about_status(self, text):
@@ -428,7 +442,8 @@ class MathTrainer(App):
         if stream is None:
             raise RuntimeError("Konnte OutputStream nicht öffnen")
         try:
-            stream.write(data)
+            # FIX: Java OutputStream.write braucht Java byte[]
+            stream.write(self._to_jbytearray(data))
             stream.flush()
         finally:
             stream.close()
@@ -440,12 +455,23 @@ class MathTrainer(App):
             raise RuntimeError("Konnte InputStream nicht öffnen")
         try:
             out = io.BytesIO()
-            buf = bytearray(64 * 1024)
-            while True:
-                n = stream.read(buf)
-                if n is None or n <= 0:
-                    break
-                out.write(bytes(buf[:n]))
+
+            if IS_ANDROID:
+                # FIX: Java InputStream.read erwartet Java byte[]
+                buf = jarray("b")([0] * (64 * 1024))
+                while True:
+                    n = stream.read(buf)
+                    if n is None or n <= 0:
+                        break
+                    out.write(self._bytes_from_jbytearray(buf, int(n)))
+            else:
+                buf = bytearray(64 * 1024)
+                while True:
+                    n = stream.read(buf)
+                    if n is None or n <= 0:
+                        break
+                    out.write(bytes(buf[:n]))
+
             return out.getvalue()
         finally:
             stream.close()
@@ -529,17 +555,112 @@ class MathTrainer(App):
         badge.add_widget(footer)
         return badge
 
+    def _show_info(self, title: str, message: str):
+        content = BoxLayout(orientation="vertical", spacing=10, padding=10)
+        content.add_widget(Label(text=message, font_size=scale_font(20)))
+        btn = Button(text="OK", font_size=scale_font(20), size_hint_y=None, height=scale_font(60))
+
+        popup = Popup(title=title, content=content, size_hint=(0.85, 0.4))
+        btn.bind(on_press=lambda *_: popup.dismiss())
+        content.add_widget(btn)
+        popup.open()
+
+    def _desktop_copy_image_to_clipboard(self, png_path: str):
+        import subprocess
+        import sys
+        from shutil import which
+
+        # Linux Wayland: wl-copy
+        if sys.platform.startswith("linux"):
+            if which("wl-copy"):
+                try:
+                    with open(png_path, "rb") as f:
+                        subprocess.run(["wl-copy", "--type", "image/png"], input=f.read(), check=True)
+                    return True, "Bild wurde in die Zwischenablage kopiert (wl-copy)."
+                except Exception as e:
+                    return False, f"wl-copy fehlgeschlagen: {e}"
+
+            # Linux X11: xclip
+            if which("xclip"):
+                try:
+                    subprocess.run(
+                        ["xclip", "-selection", "clipboard", "-t", "image/png", "-i", png_path],
+                        check=True,
+                    )
+                    return True, "Bild wurde in die Zwischenablage kopiert (xclip)."
+                except Exception as e:
+                    return False, f"xclip fehlgeschlagen: {e}"
+
+            return False, "Kein wl-copy/xclip gefunden. Installiere z.B. 'wl-clipboard' oder 'xclip'."
+
+        # macOS: AppleScript
+        if sys.platform == "darwin":
+            try:
+                script = f'''
+                set theFile to POSIX file "{png_path}"
+                set theData to (read theFile as «class PNGf»)
+                set the clipboard to theData
+                '''
+                subprocess.run(["osascript", "-e", script], check=True)
+                return True, "Bild wurde in die Zwischenablage kopiert (macOS)."
+            except Exception as e:
+                return False, f"macOS clipboard fehlgeschlagen: {e}"
+
+        # Windows: PowerShell (requires STA)
+        if sys.platform.startswith("win"):
+            try:
+                ps = f"""
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    $img = [System.Drawing.Image]::FromFile('{png_path}')
+    [System.Windows.Forms.Clipboard]::SetImage($img)
+    $img.Dispose()
+    """
+                subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", ps], check=True)
+                return True, "Bild wurde in die Zwischenablage kopiert (Windows)."
+            except Exception as e:
+                return False, f"Windows clipboard fehlgeschlagen: {e}"
+
+        return False, "Unbekanntes Desktop-OS: kann nicht in Zwischenablage kopieren."
+
+
+    def _preview_exported_image(self, path: str):
+        try:
+            from kivy.uix.image import Image as KivyImage
+
+            content = BoxLayout(orientation="vertical", spacing=10, padding=10)
+            img = KivyImage(source=path, allow_stretch=True, keep_ratio=True)
+            content.add_widget(img)
+
+            btn = Button(text="OK", font_size=scale_font(22), size_hint_y=None, height=scale_font(60))
+            popup = Popup(title="Exportiertes Badge", content=content, size_hint=(0.9, 0.9))
+            btn.bind(on_press=lambda *_: popup.dismiss())
+            content.add_widget(btn)
+
+            popup.open()
+        except Exception:
+            # Fallback: im Dateibrowser öffnen
+            try:
+                import webbrowser
+                webbrowser.open("file://" + os.path.abspath(path))
+            except Exception:
+                pass
+
+
+
     def share_achievement(self, instance=None):
-        # On Desktop this will not run (IS_ANDROID is False)
-        if not IS_ANDROID or not self._activity:
-            return
         if not self.last_new_entry or not self.category:
             return
 
         category_display = next((k for k, v in CATEGORIES.items() if v == self.category), self.category)
 
         badge = self._create_badge_widget(self.last_new_entry, category_display)
-        badge.pos = (-5000, -5000)
+
+        # Zentriert ON-SCREEN platzieren (robust, damit sicher gerendert wird)
+        w, h = badge.size
+        badge.pos = ((Window.width - w) / 2, (Window.height - h) / 2)
+
+        # Wichtig: NICHT opacity=0 setzen, sonst kann es „leer“ werden
         self.root.add_widget(badge)
 
         os.makedirs(self.user_data_dir, exist_ok=True)
@@ -548,15 +669,28 @@ class MathTrainer(App):
 
         def _render_and_share(_dt):
             try:
+                # Force update before export
+                badge.do_layout()
+                badge.canvas.ask_update()
+                self.root.canvas.ask_update()
+
                 badge.export_to_png(out_path)
             finally:
                 try:
                     self.root.remove_widget(badge)
                 except Exception:
                     pass
-            self._android_share_image_via_mediastore(out_path, title="Highscore teilen")
 
-        Clock.schedule_once(_render_and_share, 0)
+            # Android: teilen
+            if IS_ANDROID and self._activity:
+                self._android_share_image_via_mediastore(out_path, title="Highscore teilen")
+            else:
+                # Desktop: wenigstens anzeigen
+                self._preview_exported_image(out_path)
+
+        # Nicht 0! Gib Kivy Zeit für mindestens einen Draw-Pass
+        Clock.schedule_once(_render_and_share, 0.2)
+
 
     def _android_share_image_via_mediastore(self, path: str, title="Teilen"):
         try:
@@ -582,7 +716,8 @@ class MathTrainer(App):
             try:
                 with open(path, "rb") as f:
                     data = f.read()
-                stream.write(data)
+                # FIX: Java OutputStream.write braucht Java byte[]
+                stream.write(self._to_jbytearray(data))
                 stream.flush()
             finally:
                 stream.close()
@@ -591,6 +726,7 @@ class MathTrainer(App):
             intent.setType("image/png")
             intent.putExtra(Intent.EXTRA_STREAM, uri)
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             chooser = Intent.createChooser(intent, String(title))
             self._activity.startActivity(chooser)
         except Exception:
@@ -601,6 +737,7 @@ class MathTrainer(App):
             intent = Intent(Intent.ACTION_SEND)
             intent.setType("text/plain")
             intent.putExtra(Intent.EXTRA_TEXT, String(text))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             chooser = Intent.createChooser(intent, String("Teilen"))
             self._activity.startActivity(chooser)
         except Exception:
@@ -771,7 +908,7 @@ Weitere Details finden Sie unter https://dfsl.de
         self.current_view = "training"
         self.category = category
         self.points = 0
-        self.time_left = 10
+        self.time_left = 13
         self.layout.clear_widgets()
 
         top_bar = BoxLayout()
