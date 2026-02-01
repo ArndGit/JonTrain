@@ -46,7 +46,11 @@ except Exception:
 IS_ANDROID = (kivy_platform == "android")
 
 if IS_ANDROID:
-    from jnius import autoclass, jarray  # type: ignore
+    from jnius import autoclass
+    try:
+        from jnius import jarray
+    except ImportError:
+        from jnius.jnius import jarray
 
     PythonActivity = autoclass("org.kivy.android.PythonActivity")
     Intent = autoclass("android.content.Intent")
@@ -218,6 +222,7 @@ class MathTrainer(App):
     # Vibration (Android)
     # -------------------------
     def vibrate(self, times=1):
+        
         if not IS_ANDROID or not self._vibrator:
             return
 
