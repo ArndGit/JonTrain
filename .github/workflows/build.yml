@@ -1,101 +1,89 @@
-name: Android (Buildozer)
+name: Android APK (Buildozer)
 
 on:
   push:
-    branches: ["main", "feature/*"]
-  workflow_dispatch:
+    branches:
+      - main
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: buildozer-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-android:
+  build-apk:
     runs-on: ubuntu-22.04
-
     env:
-      # uv cache inside repo for caching with actions/cache
-      UV_CACHE_DIR: .uv-cache
-      # Kivy wheels index (important to avoid source builds where possible)
-      UV_EXTRA_INDEX_URL: https://kivy.org/downloads/simple/
+      PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: "0"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install system dependencies (Buildozer/Android)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            git zip unzip \
-            build-essential \
-            pkg-config \
-            libffi-dev libssl-dev \
-            libjpeg-dev zlib1g-dev \
-            autoconf automake libtool \
-            cmake \
-            libncurses5 \
-            libstdc++6 \
-            libsqlite3-dev \
-            libgdbm-dev \
-            libnss3-dev \
-            libreadline-dev \
-            liblzma-dev \
-            libbz2-dev
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+      - name: Setup Android SDK (accept licenses)
+        uses: android-actions/setup-android@v3
         with:
-          version: "latest"
+          accept-android-sdk-licenses: true
 
-      - name: Cache build artifacts
+      - name: Cache pip + Buildozer global
         uses: actions/cache@v4
         with:
           path: |
-            .buildozer_global
-            .buildozer
-            .uv-cache
-          key: ${{ runner.os }}-buildozer-uv-${{ hashFiles('buildozer.spec', 'pyproject.toml', 'requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-buildozer-uv-
+            ~/.cache/pip
+            ~/.buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
 
-      - name: Create venv + install build tools (uv)
+      - name: Install Linux dependencies
         run: |
-          uv --version
-          uv venv
-          source .venv/bin/activate
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git zip unzip \
+            autoconf automake libtool pkg-config \
+            libffi-dev libssl-dev zlib1g-dev \
+            libncurses5-dev libncursesw5-dev libtinfo5 \
+            cmake \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
+            libunwind-dev \
+            libsqlite3-dev sqlite3 \
+            bzip2 libbz2-dev \
+            openssl libgdbm-dev libgdbm-compat-dev liblzma-dev libreadline-dev uuid-dev \
+            libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            ffmpeg
 
-          # Build toolchain
-          uv pip install --upgrade pip setuptools wheel
+      - name: Install Buildozer
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install buildozer "cython==0.29.33"
 
-          # Buildozer prerequisites
-          uv pip install buildozer "cython==0.29.33"
-
-          # Optional: if you have helper scripts needing deps on the host
-          # (Buildozer uses buildozer.spec requirements inside the Android build)
-          if [ -f requirements.txt ]; then
-            uv pip install -r requirements.txt || true
+      # Optional: erzwingt Lizenzannahme per buildozer.spec wie in Buildozer CI
+      - name: Ensure buildozer.spec accepts licenses
+        run: |
+          if [ -f buildozer.spec ]; then
+            grep -q "^android.accept_sdk_license" buildozer.spec \
+              || echo "android.accept_sdk_license = True" >> buildozer.spec
           fi
 
-      - name: Build APK (debug)
+      - name: Build debug APK
         run: |
-          source .venv/bin/activate
-
-          # Ensure buildozer uses repo-local dirs (for caching)
-          export BUILDOZER_HOME="${GITHUB_WORKSPACE}/.buildozer_global"
-
-          buildozer -v android debug
+          yes | buildozer -v android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apk-debug
+          name: apk-${{ github.ref_name }}
           path: bin/*.apk
-          if-no-files-found: error
