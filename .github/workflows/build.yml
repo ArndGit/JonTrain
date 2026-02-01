@@ -12,11 +12,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
+      # uv cache inside repo for caching with actions/cache
       UV_CACHE_DIR: .uv-cache
+      # Kivy wheels index (important to avoid source builds where possible)
       UV_EXTRA_INDEX_URL: https://kivy.org/downloads/simple/
-      # Buildozer / p4a
-      ANDROIDAPI: "33"
-      ANDROIDMINAPI: "21"
 
     steps:
       - name: Checkout
@@ -53,37 +52,27 @@ jobs:
             liblzma-dev \
             libbz2-dev
 
-      # IMPORTANT FIX:
-      # buildozer/p4a uses its own SDK under .buildozer/android/platform/android-sdk,
-      # not the system SDK. So we install API 33 into THAT SDK (and accept licenses).
-      - name: Install Android API 33 into Buildozer SDK
+      # Install a stable Android SDK with sdkmanager available
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android API 33 (platform + build-tools)
         shell: bash
         run: |
-          set -euo pipefail
-          SDKROOT="${GITHUB_WORKSPACE}/.buildozer/android/platform/android-sdk"
-          mkdir -p "$SDKROOT"
+          sdkmanager --version
 
-          # Let buildozer create/download its SDK layout (including cmdline-tools)
-          python -m pip install --upgrade pip >/dev/null
-          # (buildozer will be installed in venv later; here we just ensure dirs exist)
-          # If cmdline-tools isn't there yet, bootstrap it from the runner SDK:
-          if [ ! -x "$SDKROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
-            mkdir -p "$SDKROOT/cmdline-tools"
-            cp -a /usr/local/lib/android/sdk/cmdline-tools/latest "$SDKROOT/cmdline-tools/latest"
-          fi
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2"
 
-          export ANDROIDSDK="$SDKROOT"
-          export ANDROID_SDK_ROOT="$SDKROOT"
-          export ANDROID_HOME="$SDKROOT"
-          export PATH="$SDKROOT/cmdline-tools/latest/bin:$SDKROOT/platform-tools:$PATH"
-
+          # Accept licenses; avoid failing the step due to pipe issues
           set +o pipefail
-          yes | sdkmanager --licenses
+          yes | sdkmanager --licenses || true
           set -o pipefail
-          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
-          # Show installed targets for debugging
-          sdkmanager --list | sed -n '1,200p' || true
+          # Show what we have (debug)
+          ls -la "${ANDROID_SDK_ROOT}/platforms" || true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
@@ -117,16 +106,15 @@ jobs:
       - name: Build APK (debug)
         shell: bash
         run: |
-          set -euo pipefail
           source .venv/bin/activate
 
+          # Ensure buildozer uses repo-local dirs (for caching)
           export BUILDOZER_HOME="${GITHUB_WORKSPACE}/.buildozer_global"
 
-          # Force buildozer to use the repo SDK where we installed android-33
-          export ANDROIDSDK="${GITHUB_WORKSPACE}/.buildozer/android/platform/android-sdk"
-          export ANDROID_SDK_ROOT="$ANDROIDSDK"
-          export ANDROID_HOME="$ANDROIDSDK"
-          export PATH="$ANDROIDSDK/cmdline-tools/latest/bin:$ANDROIDSDK/platform-tools:$PATH"
+          # Force buildozer/p4a to use the SDK we installed (avoid random SDK locations)
+          export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT}"
+          export ANDROID_HOME="${ANDROID_SDK_ROOT}"
+          export ANDROIDSDK="${ANDROID_SDK_ROOT}"
 
           buildozer -v android debug
 
