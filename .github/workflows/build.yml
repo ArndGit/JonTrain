@@ -11,13 +11,9 @@ jobs:
     runs-on: ubuntu-22.04
 
     env:
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      # Wichtige Stellschrauben:
       ANDROIDAPI: "33"
       ANDROIDMINAPI: "21"
       ANDROID_BUILD_TOOLS: "33.0.2"
-      P4A_RELEASE: "0" # debug build; für release/aab später auf 1 + keystore
 
     steps:
       - name: Checkout
@@ -34,6 +30,19 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Wichtig: bringt sdkmanager in PATH
+      - name: Setup Android SDK (cmdline-tools)
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages (API 33)
+        run: |
+          sdkmanager --version
+          yes | sdkmanager --licenses
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROIDAPI}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
+
       - name: Install system deps
         run: |
           sudo apt-get update
@@ -45,28 +54,6 @@ jobs:
             autoconf automake libtool \
             python3-dev
 
-      - name: Install uv + build tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install -U uv
-          uv venv
-          . .venv/bin/activate
-          uv pip install -U buildozer "cython==0.29.33"
-
-      - name: Ensure Android SDK platform is installed (API 33)
-        run: |
-          sdkmanager --version
-          yes | sdkmanager --licenses
-
-          # Plattformen/Build-Tools, die py4a/buildozer wirklich brauchen:
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-${ANDROIDAPI}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "tools" || true
-
-          sdkmanager --list | sed -n '1,200p'
-
       - name: Cache Buildozer downloads
         uses: actions/cache@v4
         with:
@@ -77,14 +64,17 @@ jobs:
           restore-keys: |
             buildozer-${{ runner.os }}-
 
+      - name: Install uv + build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U uv
+          uv venv
+          . .venv/bin/activate
+          uv pip install -U buildozer "cython==0.29.33"
+
       - name: Build APK (debug)
         run: |
           . .venv/bin/activate
-
-          # Optional: falls buildozer.spec in Unterordner liegt:
-          # cd JonTrain
-
-          # Sauberer, reproduzierbarer Build:
           buildozer -v android clean
           buildozer -v android debug
 
