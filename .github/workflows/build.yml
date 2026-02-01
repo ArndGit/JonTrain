@@ -2,7 +2,9 @@ name: Android (Buildozer)
 
 on:
   push:
-    branches: ["main", "feature/*"]
+    branches:
+      - main
+      - "feature/*"
   workflow_dispatch:
 
 jobs:
@@ -12,6 +14,7 @@ jobs:
     env:
       UV_CACHE_DIR: .uv-cache
       UV_EXTRA_INDEX_URL: https://kivy.org/downloads/simple/
+      # Buildozer / p4a
       ANDROIDAPI: "33"
       ANDROIDMINAPI: "21"
 
@@ -50,17 +53,35 @@ jobs:
             liblzma-dev \
             libbz2-dev
 
-      # Provides sdkmanager under /usr/local/lib/android/sdk/...
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android API 33 (into the SAME SDK Buildozer will use)
+      # IMPORTANT FIX:
+      # buildozer/p4a uses its own SDK under .buildozer/android/platform/android-sdk,
+      # not the system SDK. So we install API 33 into THAT SDK (and accept licenses).
+      - name: Install Android API 33 into Buildozer SDK
+        shell: bash
         run: |
+          set -euo pipefail
+          SDKROOT="${GITHUB_WORKSPACE}/.buildozer/android/platform/android-sdk"
+          mkdir -p "$SDKROOT"
+
+          # Let buildozer create/download its SDK layout (including cmdline-tools)
+          python -m pip install --upgrade pip >/dev/null
+          # (buildozer will be installed in venv later; here we just ensure dirs exist)
+          # If cmdline-tools isn't there yet, bootstrap it from the runner SDK:
+          if [ ! -x "$SDKROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            mkdir -p "$SDKROOT/cmdline-tools"
+            cp -a /usr/local/lib/android/sdk/cmdline-tools/latest "$SDKROOT/cmdline-tools/latest"
+          fi
+
+          export ANDROIDSDK="$SDKROOT"
+          export ANDROID_SDK_ROOT="$SDKROOT"
+          export ANDROID_HOME="$SDKROOT"
+          export PATH="$SDKROOT/cmdline-tools/latest/bin:$SDKROOT/platform-tools:$PATH"
+
           yes | sdkmanager --licenses
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.2"
+          sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+          # Show installed targets for debugging
+          sdkmanager --list | sed -n '1,200p' || true
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
@@ -83,23 +104,27 @@ jobs:
           uv --version
           uv venv
           source .venv/bin/activate
+
           uv pip install --upgrade pip setuptools wheel
           uv pip install buildozer "cython==0.29.33"
+
           if [ -f requirements.txt ]; then
             uv pip install -r requirements.txt || true
           fi
 
       - name: Build APK (debug)
+        shell: bash
         run: |
+          set -euo pipefail
           source .venv/bin/activate
 
-          # Repo-local buildozer dirs (cache-friendly)
           export BUILDOZER_HOME="${GITHUB_WORKSPACE}/.buildozer_global"
 
-          # CRITICAL: force Buildozer/p4a to use the runner's Android SDK
-          export ANDROID_SDK_ROOT="/usr/local/lib/android/sdk"
-          export ANDROID_HOME="/usr/local/lib/android/sdk"
-          export ANDROIDSDK="/usr/local/lib/android/sdk"
+          # Force buildozer to use the repo SDK where we installed android-33
+          export ANDROIDSDK="${GITHUB_WORKSPACE}/.buildozer/android/platform/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROIDSDK"
+          export ANDROID_HOME="$ANDROIDSDK"
+          export PATH="$ANDROIDSDK/cmdline-tools/latest/bin:$ANDROIDSDK/platform-tools:$PATH"
 
           buildozer -v android debug
 
