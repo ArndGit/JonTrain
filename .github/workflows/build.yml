@@ -1,126 +1,101 @@
-name: Build APK with Buildozer (uv)
+name: Android (Buildozer)
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: ["main", "master"]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-22.04
 
+    env:
+      # uv cache inside repo for caching with actions/cache
+      UV_CACHE_DIR: .uv-cache
+      # Kivy wheels index (important to avoid source builds where possible)
+      UV_EXTRA_INDEX_URL: https://kivy.org/downloads/simple/
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Get Date
-        id: get-date
-        shell: bash
-        run: echo "date=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Buildozer global directory
-        uses: actions/cache@v4
-        with:
-          path: .buildozer_global
-          key: buildozer-global-${{ hashFiles('buildozer.spec') }}
-
-      - name: Cache Buildozer directory
-        uses: actions/cache@v4
-        with:
-          path: .buildozer
-          key: ${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ hashFiles('buildozer.spec') }}
-
-      - name: Cache uv
-        uses: actions/cache@v4
-        with:
-          path: .uv-cache
-          key: uv-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'requirements.txt') }}
-
-      - name: Install OS dependencies
-        shell: bash
-        run: |
-          sudo apt update
-          sudo apt-get install -y \
-            build-essential \
-            git \
-            ffmpeg \
-            libsdl2-dev \
-            libsdl2-image-dev \
-            libsdl2-mixer-dev \
-            libsdl2-ttf-dev \
-            libportmidi-dev \
-            libswscale-dev \
-            libavformat-dev \
-            libavcodec-dev \
-            libunwind-dev \
-            zlib1g-dev \
-            libsqlite3-dev \
-            sqlite3 \
-            bzip2 \
-            libbz2-dev \
-            openssl \
-            libgdbm-dev \
-            libgdbm-compat-dev \
-            liblzma-dev \
-            libreadline-dev \
-            uuid-dev \
-            zip \
-            unzip \
-            autoconf \
-            libtool \
-            pkg-config \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libtinfo5 \
-            cmake \
-            libffi-dev \
-            libssl-dev \
-            automake \
-            libgstreamer1.0 \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good
-
-      - name: Setup Java 17 (Gradle)
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # "newest possible" that is broadly supported and typically works well with Kivy tooling
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
+      - name: Install system dependencies (Buildozer/Android)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip \
+            build-essential \
+            pkg-config \
+            libffi-dev libssl-dev \
+            libjpeg-dev zlib1g-dev \
+            autoconf automake libtool \
+            cmake \
+            libncurses5 \
+            libstdc++6 \
+            libsqlite3-dev \
+            libgdbm-dev \
+            libnss3-dev \
+            libreadline-dev \
+            liblzma-dev \
+            libbz2-dev
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
         with:
-          enable-cache: true
+          version: "latest"
 
-      - name: Install Python deps (uv)
-        shell: bash
-        env:
-          UV_CACHE_DIR: .uv-cache
-          # Helps uv/pip find Kivy wheels instead of trying to build from source
-          UV_EXTRA_INDEX_URL: https://kivy.org/downloads/simple/
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .buildozer_global
+            .buildozer
+            .uv-cache
+          key: ${{ runner.os }}-buildozer-uv-${{ hashFiles('buildozer.spec', 'pyproject.toml', 'requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-buildozer-uv-
+
+      - name: Create venv + install build tools (uv)
         run: |
           uv --version
-          uv pip install --upgrade pip setuptools wheel
-          uv pip install buildozer "cython==0.29.33"
-          # If you have runtime deps for helper scripts, keep this:
-          # uv pip install -r requirements.txt
+          uv venv
+          source .venv/bin/activate
 
-      - name: Build APK with Buildozer
-        shell: bash
-        env:
-          UV_CACHE_DIR: .uv-cache
+          # Build toolchain
+          uv pip install --upgrade pip setuptools wheel
+
+          # Buildozer prerequisites
+          uv pip install buildozer "cython==0.29.33"
+
+          # Optional: if you have helper scripts needing deps on the host
+          # (Buildozer uses buildozer.spec requirements inside the Android build)
+          if [ -f requirements.txt ]; then
+            uv pip install -r requirements.txt || true
+          fi
+
+      - name: Build APK (debug)
         run: |
-          yes | uv run buildozer -v android debug
+          source .venv/bin/activate
+
+          # Ensure buildozer uses repo-local dirs (for caching)
+          export BUILDOZER_HOME="${GITHUB_WORKSPACE}/.buildozer_global"
+
+          buildozer -v android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: package
+          name: apk-debug
           path: bin/*.apk
+          if-no-files-found: error
