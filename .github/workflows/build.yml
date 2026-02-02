@@ -87,7 +87,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apk-${{ github.ref_name }}
+          name: name: apk-${{ github.run_id }}
           path: bin/*.apk
 
 
