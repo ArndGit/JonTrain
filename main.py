@@ -502,8 +502,9 @@ class MathTrainer(App):
 
     def import_backup(self, instance=None):
         if pyzipper is None and not _HAVE_PYCRYPTODOME:
-            self._set_about_status("Import nicht moeglich: pyzipper/pycryptodome fehlt.")
-            return
+            self._set_about_status("Hinweis: Backup deaktiviert (pyzipper/pycryptodome fehlt).")
+        elif pyzipper is None:
+            self._set_about_status("Hinweis: pyzipper fehlt. Backup nutzt AES-Format.")
 
         if IS_ANDROID and self._activity:
             try:
@@ -822,6 +823,10 @@ class MathTrainer(App):
             api = int(Build_VERSION.SDK_INT)
             if api >= 29:
                 values.put(MediaStore_MediaColumns.RELATIVE_PATH, String("Pictures/JonTrain"))
+                try:
+                    values.put(MediaStore_MediaColumns.IS_PENDING, 1)
+                except Exception:
+                    pass
 
             uri = resolver.insert(MediaStore_Images_Media.EXTERNAL_CONTENT_URI, values)
             if uri is None:
@@ -840,12 +845,30 @@ class MathTrainer(App):
             finally:
                 stream.close()
 
+            if api >= 29:
+                try:
+                    values = ContentValues()
+                    values.put(MediaStore_MediaColumns.IS_PENDING, 0)
+                    resolver.update(uri, values, None, None)
+                except Exception:
+                    pass
+
             intent = Intent(Intent.ACTION_SEND)
             intent.setType("image/png")
+            try:
+                intent.setDataAndType(uri, "image/png")
+            except Exception:
+                pass
             intent.putExtra(Intent.EXTRA_STREAM, uri)
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try:
+                intent.setClipData(ClipData.newRawUri(String("image"), uri))
+            except Exception:
+                pass
             chooser = Intent.createChooser(intent, String(title))
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             self._activity.startActivity(chooser)
         except Exception:
             self._android_share_text("Ich habe einen Highscore in JonTrain geschafft!")
@@ -857,6 +880,7 @@ class MathTrainer(App):
             intent.putExtra(Intent.EXTRA_TEXT, String(text))
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             chooser = Intent.createChooser(intent, String("Teilen"))
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             self._activity.startActivity(chooser)
         except Exception:
             pass
