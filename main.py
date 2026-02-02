@@ -34,7 +34,8 @@ LEGACY_HIGHSCORE_FILE = "highscores.json"
 
 # Backup settings
 BACKUP_PASSWORD = "JonTrain-Extrasicher"
-BACKUP_EXTENSION = ".jontrain.zip"
+BACKUP_EXTENSION_ZIP = ".jontrain.zip"
+BACKUP_EXTENSION_AES = ".jontrain.aes"
 
 # AES Zip writer/reader
 try:
@@ -42,6 +43,20 @@ try:
 except Exception:
     pyzipper = None
 
+# AES-GCM fallback (uses pycryptodome)
+try:
+    from Crypto.Cipher import AES  # type: ignore
+    from Crypto.Protocol.KDF import PBKDF2  # type: ignore
+    from Crypto.Hash import SHA256  # type: ignore
+    _HAVE_PYCRYPTODOME = True
+except Exception:
+    AES = None  # type: ignore
+    PBKDF2 = None  # type: ignore
+    SHA256 = None  # type: ignore
+    _HAVE_PYCRYPTODOME = False
+
+# Backup header (for AES-GCM fallback)
+_BACKUP_MAGIC = b"JTBK1"
 # Android (JNI) — use platform detection (not "try import" only)
 IS_ANDROID = (kivy_platform == "android")
 _JARRAY_AVAILABLE = False
@@ -67,6 +82,12 @@ if IS_ANDROID:
     Build_VERSION = autoclass("android.os.Build$VERSION")
     Context = autoclass("android.content.Context")
     VibrationEffect = autoclass("android.os.VibrationEffect")
+    ClipData = autoclass("android.content.ClipData")
+
+    try:
+        VibratorManager = autoclass("android.os.VibratorManager")
+    except Exception:
+        VibratorManager = None
 
     MediaStore_Images_Media = autoclass("android.provider.MediaStore$Images$Media")
     MediaStore_MediaColumns = autoclass("android.provider.MediaStore$MediaColumns")
@@ -105,7 +126,7 @@ class MathTrainer(App):
         self.category = None
         self.points = 0
         self.question = None
-        self.time_left = 13
+        self.time_left = 300
         self.current_question = None
 
         self.answer = {"tens": "", "ones": "", "remainder": ""}
@@ -123,7 +144,22 @@ class MathTrainer(App):
             try:
                 self._activity = PythonActivity.mActivity
                 self._activity.bind(on_activity_result=self._on_activity_result)
-                self._vibrator = self._activity.getSystemService(Context.VIBRATOR_SERVICE)
+                self._vibrator = None
+                try:
+                    api = int(Build_VERSION.SDK_INT)
+                except Exception:
+                    api = 0
+
+                if api >= 31 and VibratorManager is not None:
+                    try:
+                        mgr = self._activity.getSystemService(Context.VIBRATOR_MANAGER_SERVICE)
+                        if mgr:
+                            self._vibrator = mgr.getDefaultVibrator()
+                    except Exception:
+                        self._vibrator = None
+
+                if self._vibrator is None:
+                    self._vibrator = self._activity.getSystemService(Context.VIBRATOR_SERVICE)
             except Exception:
                 self._activity = None
                 self._vibrator = None
@@ -233,6 +269,12 @@ class MathTrainer(App):
     def vibrate(self, times=1):
         if not IS_ANDROID or not self._vibrator:
             return
+
+        try:
+            if hasattr(self._vibrator, "hasVibrator") and not self._vibrator.hasVibrator():
+                return
+        except Exception:
+            pass
 
         pulse_ms = 140
         gap_ms = 90
@@ -363,32 +405,75 @@ class MathTrainer(App):
 
     def _backup_suggested_name(self):
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        return f"jontrain-highscores-v{__version__}-schema{HIGHSCORE_SCHEMA_VERSION}-{stamp}{BACKUP_EXTENSION}"
+        ext = BACKUP_EXTENSION_ZIP if pyzipper is not None else BACKUP_EXTENSION_AES
+        return f"jontrain-highscores-v{__version__}-schema{HIGHSCORE_SCHEMA_VERSION}-{stamp}{ext}"
 
-    def _make_encrypted_backup_bytes(self):
-        if pyzipper is None:
-            raise RuntimeError("pyzipper fehlt")
-
+    def _read_highscore_bytes(self) -> bytes:
         src_path = self.get_highscore_path()
         if not os.path.exists(src_path):
             self._save_highscores_file()
+        with open(src_path, "rb") as f:
+            return f.read()
 
-        buf = io.BytesIO()
-        with pyzipper.AESZipFile(
-            buf,
-            "w",
-            compression=pyzipper.ZIP_DEFLATED,
-            encryption=pyzipper.WZ_AES,
-        ) as zf:
-            zf.setpassword(BACKUP_PASSWORD.encode("utf-8"))
-            with open(src_path, "rb") as f:
-                zf.writestr(HIGHSCORE_FILENAME, f.read())
+    def _encrypt_backup_bytes_aes(self, payload: bytes) -> bytes:
+        if not _HAVE_PYCRYPTODOME:
+            raise RuntimeError("pycryptodome fehlt (AES-Backup nicht möglich)")
 
-        return buf.getvalue()
+        salt = os.urandom(16)
+        key = PBKDF2(
+            BACKUP_PASSWORD.encode("utf-8"),
+            salt,
+            dkLen=32,
+            count=200_000,
+            hmac_hash_module=SHA256,
+        )
+        nonce = os.urandom(12)
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        ciphertext, tag = cipher.encrypt_and_digest(payload)
+        return _BACKUP_MAGIC + salt + nonce + tag + ciphertext
+
+    def _decrypt_backup_bytes_aes(self, data: bytes) -> bytes:
+        if not _HAVE_PYCRYPTODOME:
+            raise RuntimeError("pycryptodome fehlt (AES-Import nicht möglich)")
+
+        if not data.startswith(_BACKUP_MAGIC):
+            raise RuntimeError("Backup ungültig: AES-Header fehlt")
+
+        salt = data[len(_BACKUP_MAGIC):len(_BACKUP_MAGIC) + 16]
+        nonce = data[len(_BACKUP_MAGIC) + 16:len(_BACKUP_MAGIC) + 28]
+        tag = data[len(_BACKUP_MAGIC) + 28:len(_BACKUP_MAGIC) + 44]
+        ciphertext = data[len(_BACKUP_MAGIC) + 44:]
+
+        key = PBKDF2(
+            BACKUP_PASSWORD.encode("utf-8"),
+            salt,
+            dkLen=32,
+            count=200_000,
+            hmac_hash_module=SHA256,
+        )
+        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        return cipher.decrypt_and_verify(ciphertext, tag)
+
+    def _make_encrypted_backup_bytes(self):
+        payload = self._read_highscore_bytes()
+
+        if pyzipper is not None:
+            buf = io.BytesIO()
+            with pyzipper.AESZipFile(
+                buf,
+                "w",
+                compression=pyzipper.ZIP_DEFLATED,
+                encryption=pyzipper.WZ_AES,
+            ) as zf:
+                zf.setpassword(BACKUP_PASSWORD.encode("utf-8"))
+                zf.writestr(HIGHSCORE_FILENAME, payload)
+            return buf.getvalue()
+
+        return self._encrypt_backup_bytes_aes(payload)
 
     def export_backup(self, instance=None):
-        if pyzipper is None:
-            self._set_about_status("Export nicht möglich: pyzipper fehlt.")
+        if pyzipper is None and not _HAVE_PYCRYPTODOME:
+            self._set_about_status("Export nicht moeglich: pyzipper/pycryptodome fehlt.")
             return
 
         if IS_ANDROID and self._activity:
@@ -396,7 +481,8 @@ class MathTrainer(App):
                 self._pending_backup_bytes = self._make_encrypted_backup_bytes()
                 intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
                 intent.addCategory(Intent.CATEGORY_OPENABLE)
-                intent.setType("application/zip")
+                mime = "application/zip" if pyzipper is not None else "application/octet-stream"
+                intent.setType(mime)
                 intent.putExtra(Intent.EXTRA_TITLE, self._backup_suggested_name())
                 self._activity.startActivityForResult(intent, self.REQ_EXPORT_BACKUP)
                 self._set_about_status("Speicherort auswählen…")
@@ -415,8 +501,8 @@ class MathTrainer(App):
             self._set_about_status(f"Export-Fehler: {e}")
 
     def import_backup(self, instance=None):
-        if pyzipper is None:
-            self._set_about_status("Import nicht möglich: pyzipper fehlt.")
+        if pyzipper is None and not _HAVE_PYCRYPTODOME:
+            self._set_about_status("Import nicht moeglich: pyzipper/pycryptodome fehlt.")
             return
 
         if IS_ANDROID and self._activity:
@@ -504,13 +590,18 @@ class MathTrainer(App):
             stream.close()
 
     def _import_backup_bytes(self, zip_bytes: bytes):
-        buf = io.BytesIO(zip_bytes)
-        with pyzipper.AESZipFile(buf, "r") as zf:
-            zf.setpassword(BACKUP_PASSWORD.encode("utf-8"))
-            names = zf.namelist()
-            if HIGHSCORE_FILENAME not in names:
-                raise RuntimeError("Backup ungültig: Datei fehlt im Archiv")
-            raw = zf.read(HIGHSCORE_FILENAME)
+        if zip_bytes.startswith(_BACKUP_MAGIC):
+            raw = self._decrypt_backup_bytes_aes(zip_bytes)
+        else:
+            if pyzipper is None:
+                raise RuntimeError("pyzipper fehlt (ZIP-Import nicht moeglich)")
+            buf = io.BytesIO(zip_bytes)
+            with pyzipper.AESZipFile(buf, "r") as zf:
+                zf.setpassword(BACKUP_PASSWORD.encode("utf-8"))
+                names = zf.namelist()
+                if HIGHSCORE_FILENAME not in names:
+                    raise RuntimeError("Backup ungueltig: Datei fehlt im Archiv")
+                raw = zf.read(HIGHSCORE_FILENAME)
 
         obj = json.loads(raw.decode("utf-8"))
         if not (isinstance(obj, dict) and "schema_version" in obj and "data" in obj):
@@ -793,8 +884,9 @@ class MathTrainer(App):
         self.about_status_label = Label(text="", font_size=scale_font(16))
         self.layout.add_widget(self.about_status_label)
 
-        if pyzipper is None:
-            self._set_about_status("Hinweis: 'pyzipper' fehlt. Backup geht erst nach Installation davon.")
+        if pyzipper is None and not _HAVE_PYCRYPTODOME:
+            self._set_about_status("Import nicht moeglich: pyzipper/pycryptodome fehlt.")
+            return
 
         license_btn = Button(text="Lizenz", font_size=scale_font(24), on_press=self.show_license)
         self.layout.add_widget(license_btn)
@@ -935,7 +1027,7 @@ Weitere Details finden Sie unter https://dfsl.de
         self.current_view = "training"
         self.category = category
         self.points = 0
-        self.time_left = 13
+        self.time_left = 300
         self.layout.clear_widgets()
 
         top_bar = BoxLayout()
