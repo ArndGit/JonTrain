@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - "*"
+    tags:
+      - "v*"
   pull_request:
     branches:
       - main
@@ -87,3 +89,11 @@ jobs:
         with:
           name: apk-${{ github.ref_name }}
           path: bin/*.apk
+
+
+      - name: Upload APK to GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bin/*.apk
+
