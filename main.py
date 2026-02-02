@@ -44,9 +44,22 @@ except Exception:
 
 # Android (JNI) — use platform detection (not "try import" only)
 IS_ANDROID = (kivy_platform == "android")
+_JARRAY_AVAILABLE = False
+_JBYTEARRAY_CLS = None
 
 if IS_ANDROID:
-    from jnius import autoclass, jarray  # type: ignore
+    try:
+        from jnius import autoclass, jarray  # type: ignore
+        _JARRAY_AVAILABLE = True
+    except Exception:
+        from jnius import autoclass  # type: ignore
+        jarray = None  # type: ignore
+
+    if not _JARRAY_AVAILABLE:
+        try:
+            _JBYTEARRAY_CLS = autoclass("[B")
+        except Exception:
+            _JBYTEARRAY_CLS = None
 
     PythonActivity = autoclass("org.kivy.android.PythonActivity")
     Intent = autoclass("android.content.Intent")
@@ -326,10 +339,19 @@ class MathTrainer(App):
         if not IS_ANDROID:
             return data  # type: ignore
         signed = [b - 256 if b > 127 else b for b in data]
-        return jarray("b")(signed)
+        if _JARRAY_AVAILABLE and jarray:
+            return jarray("b")(signed)
+        if _JBYTEARRAY_CLS:
+            arr = _JBYTEARRAY_CLS(len(signed))
+            for i, v in enumerate(signed):
+                arr[i] = v
+            return arr
+        return data  # type: ignore
 
     def _bytes_from_jbytearray(self, buf, n: int) -> bytes:
         """Convert Java byte[] (-128..127) to Python bytes (0..255)."""
+        if isinstance(buf, (bytes, bytearray)):
+            return bytes(buf[:n])
         return bytes(((int(buf[i]) + 256) & 0xFF) for i in range(n))
 
     # -------------------------
@@ -458,7 +480,12 @@ class MathTrainer(App):
 
             if IS_ANDROID:
                 # FIX: Java InputStream.read erwartet Java byte[]
-                buf = jarray("b")([0] * (64 * 1024))
+                if _JARRAY_AVAILABLE and jarray:
+                    buf = jarray("b")([0] * (64 * 1024))
+                elif _JBYTEARRAY_CLS:
+                    buf = _JBYTEARRAY_CLS(64 * 1024)
+                else:
+                    buf = bytearray(64 * 1024)
                 while True:
                     n = stream.read(buf)
                     if n is None or n <= 0:
