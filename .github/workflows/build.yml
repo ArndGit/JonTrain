@@ -1,5 +1,8 @@
 name: Android APK (Buildozer)
 
+permissions:
+  contents: write
+  
 on:
   push:
     branches:
