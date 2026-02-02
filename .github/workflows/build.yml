@@ -1,113 +1,89 @@
-name: Build APK with Buildozer
+name: Android APK (Buildozer)
 
 on:
   push:
     branches:
-      - main  # Runs on all branches
+      - main
+      - "*"
   pull_request:
     branches:
-      - main  # Runs on all PRs targeting any branch
-  workflow_dispatch:
+      - main
+
+concurrency:
+  group: buildozer-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  build-apk:
     runs-on: ubuntu-22.04
+    env:
+      PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: "0"
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # Used to cache dependencies with a timeout
-      - name: Get Date
-        id: get-date
-        run: |
-          echo "::set-output name=date::$(/bin/date -u "+%Y%m%d")"
-        shell: bash
-
-      - name: Cache Buildozer global directory
-        uses: actions/cache@v2
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
-          path: .buildozer_global
-          key: buildozer-global-${{ hashFiles('buildozer.spec') }}
+          distribution: temurin
+          java-version: "17"
 
-      - uses: actions/cache@v2
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          path: .buildozer
-          key: ${{ runner.os }}-${{ steps.get-date.outputs.date }}-${{ hashFiles('buildozer.spec') }}
+          python-version: "3.11"
 
-      # Install dependencies
-      - name: Install dependencies
+      - name: Setup Android SDK (accept licenses)
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - name: Cache pip + Buildozer global
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.buildozer
+          key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+
+      - name: Install Linux dependencies
         run: |
-          sudo apt update
-          sudo apt-get install -y \
-            build-essential \
-            git \
-            ffmpeg \
-            libsdl2-dev \
-            libsdl2-image-dev \
-            libsdl2-mixer-dev \
-            libsdl2-ttf-dev \
-            libportmidi-dev \
-            libswscale-dev \
-            libavformat-dev \
-            libavcodec-dev \
-            libunwind-dev \
-            zlib1g-dev
-          sudo apt-get install -y \
-            libsqlite3-dev \
-            sqlite3 \
-            bzip2 \
-            libbz2-dev \
-            zlib1g-dev \
-            openssl \
-            libgdbm-dev \
-            libgdbm-compat-dev \
-            liblzma-dev \
-            libreadline-dev \
-            uuid-dev \
-            libgstreamer1.0 \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good
-          sudo apt-get install -y \
-            zip \
-            unzip \
-            autoconf \
-            libtool \
-            pkg-config \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libtinfo5 \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git zip unzip \
+            autoconf automake libtool pkg-config \
+            libffi-dev libssl-dev zlib1g-dev \
+            libncurses5-dev libncursesw5-dev libtinfo5 \
             cmake \
-            libffi-dev \
-            libssl-dev \
-            automake
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
+            libunwind-dev \
+            libsqlite3-dev sqlite3 \
+            bzip2 libbz2-dev \
+            openssl libgdbm-dev libgdbm-compat-dev liblzma-dev libreadline-dev uuid-dev \
+            libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            ffmpeg
 
-      # Set up Java 17 required by Gradle
-      - name: Setup Java 17 required by Gradle
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'  # or 'zulu', 'liberica', etc.
-          java-version: '17'
-
-      # Set up Python
-      - name: Set up Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.8' #set your python version
-
-      # Install pip dependencies
-      - name: Install pip dependencies
+      - name: Install Buildozer
         run: |
-          pip install --upgrade pip
-          pip install buildozer cython==0.29.33
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install buildozer "cython==0.29.33"
 
-      # Build with Buildozer
-      - name: Build with Buildozer
-        id: buildozer
+      # Optional: erzwingt Lizenzannahme per buildozer.spec wie in Buildozer CI
+      - name: Ensure buildozer.spec accepts licenses
+        run: |
+          if [ -f buildozer.spec ]; then
+            grep -q "^android.accept_sdk_license" buildozer.spec \
+              || echo "android.accept_sdk_license = True" >> buildozer.spec
+          fi
+
+      - name: Build debug APK
         run: |
           yes | buildozer -v android debug
 
-      # Upload artifacts
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: package
+          name: apk-${{ github.ref_name }}
           path: bin/*.apk

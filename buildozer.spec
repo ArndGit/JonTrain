@@ -12,7 +12,7 @@ title = JonTrain
 package.name = jontrain
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = org.test
+package.domain = de.arndbrandes
 
 # (str) Source code where the main.py live
 source.dir = .
@@ -34,7 +34,7 @@ source.include_exts = py,png,jpg,kv,atlas
 #source.exclude_patterns = license,images/*/*.jpg
 
 # (str) Application versioning (method 1)
-# version = 0.7
+# version = 0.8
 
 # (str) Application versioning (method 2)
 version.regex = __version__ = ['"](.*)['"]
@@ -42,7 +42,7 @@ version.filename = main.py
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy 
+requirements = python3,kivy,pyjnius,pyzipper,pycryptodome
 
 # (str) Custom source folders for requirements
 # Sets custom source for any requirements with recipes
@@ -51,9 +51,8 @@ requirements = python3,kivy
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/data/presplash.png
 
-# (str) Icon of the application
-#icon.filename = %(source.dir)s/data/icon.png
-
+icon.filename = %(source.dir)s/icon.png
+presplash.filename = %(source.dir)s/presplash.png
 # (list) Supported orientations
 # Valid options are: landscape, portrait, portrait-reverse or landscape-reverse
 orientation = portrait
@@ -105,11 +104,20 @@ fullscreen = 1
 # (See https://python-for-android.readthedocs.io/en/latest/buildoptions.html for all the supported syntaxes and properties)
 #android.permissions = android.permission.INTERNET, (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=18)
 
+android.permissions = android.permission.VIBRATE, android.permission.READ_MEDIA_IMAGES, (name=android.permission.WRITE_EXTERNAL_STORAGE;maxSdkVersion=28)
+
 # (list) features (adds uses-feature -tags to manifest)
 #android.features = android.hardware.usb.host
 
+#android.sdk_path = /usr/local/lib/android/sdk
+#android.ndk_path = /usr/local/lib/android/sdk/ndk/27.3.13750724
+
+android.api = 33
+#android.minapi = 21
+#android.ndk_api = 21
+
 # (int) Target Android API, should be as high as possible.
-#android.api = 31
+#android.api = 33
 
 # (int) Minimum API your APK / AAB will support.
 #android.minapi = 21
@@ -278,10 +286,10 @@ android.accept_sdk_license = True
 #android.uses_library =
 
 # (str) Android logcat filters to use
-#android.logcat_filters = *:S python:D
+android.logcat_filters = *:S python:D
 
 # (bool) Android logcat only display log for activity's pid
-#android.logcat_pid_only = False
+android.logcat_pid_only = True
 
 # (str) Android additional adb arguments
 #android.adb_args = -H host.docker.internal

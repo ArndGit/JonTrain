@@ -1,1 +1,6 @@
+# This project is managed with uv + pyproject.toml.
+# requirements.txt is kept for compatibility with tools that expect it.
 kivy
+pyzipper
+pycryptodome
+pyjnius

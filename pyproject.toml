@@ -1,0 +1,25 @@
+[project]
+name = "jontrain"
+version = "0.8"
+description = "Grundschul-Rechentrainer (Multiplikation/Division, inkl. Division mit Rest)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "kivy",
+  "pyzipper",
+  "pycryptodome"
+]
+
+authors = [
+  { name = "Arnd Brandes" },
+]
+
+[tool.uv]
+# Standard-Workspace-venv im Projektordner
+managed = true
+
+[tool.uv.pip]
+# Kivy stellt für manche Plattformen Wheels über den eigenen Index bereit.
+# Falls deine Umgebung sonst versucht, Kivy aus Source zu bauen, kann diese Zeile helfen.
+# (Wenn du das nicht brauchst: einfach stehen lassen oder auskommentieren.)
+extra-index-url = ["https://kivy.org/downloads/simple/"]
