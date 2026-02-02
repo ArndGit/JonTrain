@@ -1,10 +1,15 @@
 name: Android APK (Buildozer)
 
+permissions:
+  contents: write
+  
 on:
   push:
     branches:
       - main
       - "*"
+    tags:
+      - "v*"
   pull_request:
     branches:
       - main
@@ -85,5 +90,13 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apk-${{ github.ref_name }}
+          name: apk-${{ github.run_id }}
           path: bin/*.apk
+
+
+      - name: Upload APK to GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bin/*.apk
+
