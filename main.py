@@ -10,16 +10,20 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
 from kivy.uix.widget import Widget
 from kivy.core.window import Window
+from kivy.core.audio import SoundLoader
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle, Line
 from kivy.utils import platform as kivy_platform
 
 from datetime import datetime
+import math
 from random import randint
 import os
 import json
 import webbrowser
 import io
+import struct
+import wave
 
 __version__ = "0.8"
 
@@ -133,6 +137,9 @@ class MathTrainer(App):
         self.button_refs = {"tens": None, "ones": None, "remainder": None}
 
         self.last_new_entry = None
+        self._sound_success = None
+        self._sound_failure = None
+        self._sounds_ready = False
 
         self.highscores = {}
         self.load_highscores()
@@ -268,16 +275,18 @@ class MathTrainer(App):
     # -------------------------
     def vibrate(self, times=1):
         if not IS_ANDROID or not self._vibrator:
-            return
+            return False
 
         try:
             if hasattr(self._vibrator, "hasVibrator") and not self._vibrator.hasVibrator():
-                return
+                return False
         except Exception:
             pass
 
         pulse_ms = 140
         gap_ms = 90
+
+        scheduled = False
 
         def _pulse(_dt):
             try:
@@ -294,6 +303,60 @@ class MathTrainer(App):
         for _ in range(max(1, int(times))):
             Clock.schedule_once(_pulse, t)
             t += (pulse_ms + gap_ms) / 1000.0
+            scheduled = True
+
+        return scheduled
+
+    def _tone_path(self, name: str) -> str:
+        os.makedirs(self.user_data_dir, exist_ok=True)
+        return os.path.join(self.user_data_dir, name)
+
+    def _generate_tone(self, path: str, freq: float, duration: float, volume: float = 0.35):
+        sample_rate = 44100
+        frames = int(sample_rate * max(0.05, duration))
+        amp = int(32767 * max(0.0, min(1.0, volume)))
+        with wave.open(path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            for i in range(frames):
+                s = int(amp * math.sin(2.0 * math.pi * freq * (i / sample_rate)))
+                wf.writeframes(struct.pack("<h", s))
+
+    def _ensure_feedback_sounds(self):
+        if self._sounds_ready:
+            return
+        self._sounds_ready = True
+
+        try:
+            success_path = self._tone_path("success.wav")
+            fail_path = self._tone_path("failure.wav")
+
+            if not os.path.exists(success_path):
+                self._generate_tone(success_path, freq=880.0, duration=0.14)
+            if not os.path.exists(fail_path):
+                self._generate_tone(fail_path, freq=220.0, duration=0.22)
+
+            self._sound_success = SoundLoader.load(success_path)
+            self._sound_failure = SoundLoader.load(fail_path)
+        except Exception:
+            self._sound_success = None
+            self._sound_failure = None
+
+    def _play_feedback_sound(self, success: bool):
+        self._ensure_feedback_sounds()
+        sound = self._sound_success if success else self._sound_failure
+        if sound:
+            try:
+                sound.stop()
+            except Exception:
+                pass
+            sound.play()
+
+    def _feedback(self, success: bool):
+        if self.vibrate(1 if success else 2):
+            return
+        self._play_feedback_sound(success)
 
     # -------------------------
     # Highscore persistence (App.user_data_dir)
@@ -1181,7 +1244,7 @@ Weitere Details finden Sie unter https://dfsl.de
         if user_answer == correct_answer:
             result_text = f"{user_answer[0]}" + (f" R{user_answer[1]}" if user_answer[1] else "") + " ist RICHTIG!"
             self.points += points_awarded
-            self.vibrate(1)
+            self._feedback(True)
             self.prev_question_label.color = (0, 1, 0, 1)
         else:
             correct_text = f"{correct_answer[0]}" + (f" R{correct_answer[1]}" if correct_answer[1] else "")
@@ -1190,7 +1253,7 @@ Weitere Details finden Sie unter https://dfsl.de
                 f" ist FALSCH!\n>>> {self.question} = {correct_text} <<<"
             )
             self.points = max(0, self.points + points_awarded)
-            self.vibrate(2)
+            self._feedback(False)
             self.prev_question_label.color = (1, 0, 0, 1)
 
         self.prev_question_label.text = result_text
