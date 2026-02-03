@@ -61,8 +61,9 @@ except Exception:
 
 # Backup header (for AES-GCM fallback)
 _BACKUP_MAGIC = b"JTBK1"
-# Android (JNI) — use platform detection (not "try import" only)
+# Platform detection
 IS_ANDROID = (kivy_platform == "android")
+IS_IOS = (kivy_platform == "ios")
 _JARRAY_AVAILABLE = False
 _JBYTEARRAY_CLS = None
 
@@ -97,6 +98,58 @@ if IS_ANDROID:
     MediaStore_Images_Media = autoclass("android.provider.MediaStore$Images$Media")
     MediaStore_MediaColumns = autoclass("android.provider.MediaStore$MediaColumns")
     ContentValues = autoclass("android.content.ContentValues")
+
+if IS_IOS:
+    try:
+        from pyobjus import autoclass as objc_autoclass, objc_str, objc_method, NSObject  # type: ignore
+        _HAVE_PYOBJUS = True
+    except Exception:
+        objc_autoclass = None  # type: ignore
+        objc_str = None  # type: ignore
+        objc_method = None  # type: ignore
+        NSObject = object  # type: ignore
+        _HAVE_PYOBJUS = False
+
+if IS_IOS and _HAVE_PYOBJUS:
+    class IOSDocPickerDelegate(NSObject):
+        def initWithOwner_(self, owner):
+            self = super(IOSDocPickerDelegate, self).init()
+            self._owner = owner
+            return self
+
+        @objc_method("v@:@@")
+        def documentPicker_didPickDocumentsAtURLs_(self, picker, urls):
+            try:
+                if urls is None or urls.count() == 0:
+                    self._owner._set_about_status("Keine Datei gewählt.")
+                    return
+                url = urls.objectAtIndex_(0)
+                try:
+                    if hasattr(url, "startAccessingSecurityScopedResource"):
+                        url.startAccessingSecurityScopedResource()
+                except Exception:
+                    pass
+                try:
+                    path = str(url.path())
+                    with open(path, "rb") as f:
+                        data = f.read()
+                    self._owner._import_backup_bytes(data)
+                    self._owner._set_about_status("Import erfolgreich. Highscores übernommen.")
+                finally:
+                    try:
+                        if hasattr(url, "stopAccessingSecurityScopedResource"):
+                            url.stopAccessingSecurityScopedResource()
+                    except Exception:
+                        pass
+            except Exception as e:
+                self._owner._set_about_status(f"Import-Fehler: {e}")
+
+        @objc_method("v@:@")
+        def documentPickerWasCancelled_(self, picker):
+            try:
+                self._owner._set_about_status("Abgebrochen.")
+            except Exception:
+                pass
 
 CATEGORIES = {
     "Mal-nehmen": "mult",
@@ -293,7 +346,77 @@ class MathTrainer(App):
         except Exception:
             return False
 
+    # -------------------------
+    # iOS Haptics / Share / Files
+    # -------------------------
+    def _ios_present_view_controller(self, vc):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            return False
+        try:
+            UIApplication = objc_autoclass("UIApplication")
+            app = UIApplication.sharedApplication()
+            window = app.keyWindow()
+            if window is None:
+                windows = app.windows()
+                if windows and windows.count() > 0:
+                    window = windows.objectAtIndex_(0)
+            if window is None:
+                return False
+            root = window.rootViewController()
+            if root is None:
+                return False
+            root.presentViewController_animated_completion_(vc, True, None)
+            return True
+        except Exception:
+            return False
+
+    def _ios_haptic(self, success: bool):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            return False
+        try:
+            UINotificationFeedbackGenerator = objc_autoclass("UINotificationFeedbackGenerator")
+            gen = UINotificationFeedbackGenerator.alloc().init()
+            gen.prepare()
+            # 0 = Success, 1 = Warning, 2 = Error
+            gen.notificationOccurred_(0 if success else 2)
+            return True
+        except Exception:
+            return False
+
+    def _ios_share_image(self, path: str, title: str = "Teilen"):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            return False
+        try:
+            UIImage = objc_autoclass("UIImage")
+            UIActivityViewController = objc_autoclass("UIActivityViewController")
+            NSArray = objc_autoclass("NSArray")
+            image = UIImage.imageWithContentsOfFile_(objc_str(path))
+            if image is None:
+                return False
+            items = NSArray.arrayWithObject_(image)
+            vc = UIActivityViewController.alloc().initWithActivityItems_applicationActivities_(items, None)
+            return self._ios_present_view_controller(vc)
+        except Exception:
+            return False
+
+    def _ios_share_file(self, path: str, title: str = "Teilen"):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            return False
+        try:
+            NSURL = objc_autoclass("NSURL")
+            UIActivityViewController = objc_autoclass("UIActivityViewController")
+            NSArray = objc_autoclass("NSArray")
+            url = NSURL.fileURLWithPath_(objc_str(path))
+            items = NSArray.arrayWithObject_(url)
+            vc = UIActivityViewController.alloc().initWithActivityItems_applicationActivities_(items, None)
+            return self._ios_present_view_controller(vc)
+        except Exception:
+            return False
+
     def vibrate(self, times=1):
+        if IS_IOS:
+            # Use iOS haptics; no multi-pulse support here
+            return self._ios_haptic(success=(times <= 1))
         if not IS_ANDROID:
             return False
 
@@ -379,6 +502,8 @@ class MathTrainer(App):
             sound.play()
 
     def _feedback(self, success: bool):
+        if IS_IOS and self._ios_haptic(success):
+            return
         if self.vibrate(1 if success else 2):
             return
         self._play_feedback_sound(success)
@@ -584,7 +709,13 @@ class MathTrainer(App):
             out_path = os.path.join(self.user_data_dir, self._backup_suggested_name())
             with open(out_path, "wb") as f:
                 f.write(data)
-            self._set_about_status(f"Backup gespeichert:\n{out_path}")
+            if IS_IOS:
+                if self._ios_share_file(out_path, title="Backup exportieren"):
+                    self._set_about_status("Backup bereit zum Teilen/Speichern (Dateien-App).")
+                else:
+                    self._set_about_status(f"Backup gespeichert:\n{out_path}")
+            else:
+                self._set_about_status(f"Backup gespeichert:\n{out_path}")
         except Exception as e:
             self._set_about_status(f"Export-Fehler: {e}")
 
@@ -605,7 +736,33 @@ class MathTrainer(App):
                 self._set_about_status(f"Import-Fehler: {e}")
             return
 
+        if IS_IOS:
+            self._ios_import_backup_via_picker()
+            return
+
         self._set_about_status("Import ist auf Desktop hier nicht implementiert.")
+
+    def _ios_import_backup_via_picker(self):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            self._set_about_status("Import nicht möglich: iOS/pyobjus fehlt.")
+            return
+        try:
+            UIDocumentPickerViewController = objc_autoclass("UIDocumentPickerViewController")
+            NSArray = objc_autoclass("NSArray")
+            types = NSArray.arrayWithObject_(objc_str("public.data"))
+            # 0 = UIDocumentPickerModeImport
+            picker = UIDocumentPickerViewController.alloc().initWithDocumentTypes_inMode_(types, 0)
+            delegate = IOSDocPickerDelegate.alloc().initWithOwner_(self)
+            self._ios_doc_picker_delegate = delegate
+            picker.setDelegate_(delegate)
+            try:
+                picker.setModalPresentationStyle_(1)
+            except Exception:
+                pass
+            if not self._ios_present_view_controller(picker):
+                self._set_about_status("Import nicht möglich: UI konnte nicht geöffnet werden.")
+        except Exception as e:
+            self._set_about_status(f"Import-Fehler: {e}")
 
     def _on_activity_result(self, request_code, result_code, intent):
         # Android.RESULT_OK = -1
@@ -891,6 +1048,9 @@ class MathTrainer(App):
             # Android: teilen
             if IS_ANDROID and self._activity:
                 self._android_share_image_via_mediastore(out_path, title="Highscore teilen")
+            elif IS_IOS:
+                if not self._ios_share_image(out_path, title="Highscore teilen"):
+                    self._preview_exported_image(out_path)
             else:
                 # Desktop: wenigstens anzeigen
                 self._preview_exported_image(out_path)
