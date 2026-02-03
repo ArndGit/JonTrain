@@ -86,6 +86,7 @@ if IS_ANDROID:
     Build_VERSION = autoclass("android.os.Build$VERSION")
     Context = autoclass("android.content.Context")
     VibrationEffect = autoclass("android.os.VibrationEffect")
+    HapticFeedbackConstants = autoclass("android.view.HapticFeedbackConstants")
     ClipData = autoclass("android.content.ClipData")
 
     try:
@@ -151,22 +152,7 @@ class MathTrainer(App):
             try:
                 self._activity = PythonActivity.mActivity
                 self._activity.bind(on_activity_result=self._on_activity_result)
-                self._vibrator = None
-                try:
-                    api = int(Build_VERSION.SDK_INT)
-                except Exception:
-                    api = 0
-
-                if api >= 31 and VibratorManager is not None:
-                    try:
-                        mgr = self._activity.getSystemService(Context.VIBRATOR_MANAGER_SERVICE)
-                        if mgr:
-                            self._vibrator = mgr.getDefaultVibrator()
-                    except Exception:
-                        self._vibrator = None
-
-                if self._vibrator is None:
-                    self._vibrator = self._activity.getSystemService(Context.VIBRATOR_SERVICE)
+                self._vibrator = self._get_vibrator()
             except Exception:
                 self._activity = None
                 self._vibrator = None
@@ -273,13 +259,52 @@ class MathTrainer(App):
     # -------------------------
     # Vibration (Android)
     # -------------------------
-    def vibrate(self, times=1):
-        if not IS_ANDROID or not self._vibrator:
+    def _get_vibrator(self):
+        if not IS_ANDROID or not self._activity:
+            return None
+        try:
+            api = int(Build_VERSION.SDK_INT)
+        except Exception:
+            api = 0
+
+        vib = None
+        if api >= 31 and VibratorManager is not None:
+            try:
+                mgr = self._activity.getSystemService(Context.VIBRATOR_MANAGER_SERVICE)
+                if mgr:
+                    vib = mgr.getDefaultVibrator()
+            except Exception:
+                vib = None
+
+        if vib is None:
+            try:
+                vib = self._activity.getSystemService(Context.VIBRATOR_SERVICE)
+            except Exception:
+                vib = None
+
+        return vib
+
+    def _try_haptic_feedback(self):
+        if not IS_ANDROID or not self._activity:
             return False
+        try:
+            view = self._activity.getWindow().getDecorView()
+            return bool(view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP))
+        except Exception:
+            return False
+
+    def vibrate(self, times=1):
+        if not IS_ANDROID:
+            return False
+
+        if not self._vibrator:
+            self._vibrator = self._get_vibrator()
+        if not self._vibrator:
+            return self._try_haptic_feedback()
 
         try:
             if hasattr(self._vibrator, "hasVibrator") and not self._vibrator.hasVibrator():
-                return False
+                return self._try_haptic_feedback()
         except Exception:
             pass
 
@@ -297,7 +322,7 @@ class MathTrainer(App):
                 else:
                     self._vibrator.vibrate(pulse_ms)
             except Exception:
-                pass
+                self._try_haptic_feedback()
 
         t = 0.0
         for _ in range(max(1, int(times))):
