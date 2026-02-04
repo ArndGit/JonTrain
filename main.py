@@ -25,7 +25,7 @@ import io
 import struct
 import wave
 
-__version__ = "0.8"
+__version__ = "0.9"
 
 # Operator glyphs (German style)
 OP_MUL = "\u00B7"  # middle dot
