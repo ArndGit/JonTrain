@@ -10,18 +10,22 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
 from kivy.uix.widget import Widget
 from kivy.core.window import Window
+from kivy.core.audio import SoundLoader
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle, Line
 from kivy.utils import platform as kivy_platform
 
 from datetime import datetime
+import math
 from random import randint
 import os
 import json
 import webbrowser
 import io
+import struct
+import wave
 
-__version__ = "0.8"
+__version__ = "0.9"
 
 # Operator glyphs (German style)
 OP_MUL = "\u00B7"  # middle dot
@@ -57,8 +61,9 @@ except Exception:
 
 # Backup header (for AES-GCM fallback)
 _BACKUP_MAGIC = b"JTBK1"
-# Android (JNI) — use platform detection (not "try import" only)
+# Platform detection
 IS_ANDROID = (kivy_platform == "android")
+IS_IOS = (kivy_platform == "ios")
 _JARRAY_AVAILABLE = False
 _JBYTEARRAY_CLS = None
 
@@ -82,6 +87,7 @@ if IS_ANDROID:
     Build_VERSION = autoclass("android.os.Build$VERSION")
     Context = autoclass("android.content.Context")
     VibrationEffect = autoclass("android.os.VibrationEffect")
+    HapticFeedbackConstants = autoclass("android.view.HapticFeedbackConstants")
     ClipData = autoclass("android.content.ClipData")
 
     try:
@@ -92,6 +98,58 @@ if IS_ANDROID:
     MediaStore_Images_Media = autoclass("android.provider.MediaStore$Images$Media")
     MediaStore_MediaColumns = autoclass("android.provider.MediaStore$MediaColumns")
     ContentValues = autoclass("android.content.ContentValues")
+
+if IS_IOS:
+    try:
+        from pyobjus import autoclass as objc_autoclass, objc_str, objc_method, NSObject  # type: ignore
+        _HAVE_PYOBJUS = True
+    except Exception:
+        objc_autoclass = None  # type: ignore
+        objc_str = None  # type: ignore
+        objc_method = None  # type: ignore
+        NSObject = object  # type: ignore
+        _HAVE_PYOBJUS = False
+
+if IS_IOS and _HAVE_PYOBJUS:
+    class IOSDocPickerDelegate(NSObject):
+        def initWithOwner_(self, owner):
+            self = super(IOSDocPickerDelegate, self).init()
+            self._owner = owner
+            return self
+
+        @objc_method("v@:@@")
+        def documentPicker_didPickDocumentsAtURLs_(self, picker, urls):
+            try:
+                if urls is None or urls.count() == 0:
+                    self._owner._set_about_status("Keine Datei gewählt.")
+                    return
+                url = urls.objectAtIndex_(0)
+                try:
+                    if hasattr(url, "startAccessingSecurityScopedResource"):
+                        url.startAccessingSecurityScopedResource()
+                except Exception:
+                    pass
+                try:
+                    path = str(url.path())
+                    with open(path, "rb") as f:
+                        data = f.read()
+                    self._owner._import_backup_bytes(data)
+                    self._owner._set_about_status("Import erfolgreich. Highscores übernommen.")
+                finally:
+                    try:
+                        if hasattr(url, "stopAccessingSecurityScopedResource"):
+                            url.stopAccessingSecurityScopedResource()
+                    except Exception:
+                        pass
+            except Exception as e:
+                self._owner._set_about_status(f"Import-Fehler: {e}")
+
+        @objc_method("v@:@")
+        def documentPickerWasCancelled_(self, picker):
+            try:
+                self._owner._set_about_status("Abgebrochen.")
+            except Exception:
+                pass
 
 CATEGORIES = {
     "Mal-nehmen": "mult",
@@ -133,6 +191,9 @@ class MathTrainer(App):
         self.button_refs = {"tens": None, "ones": None, "remainder": None}
 
         self.last_new_entry = None
+        self._sound_success = None
+        self._sound_failure = None
+        self._sounds_ready = False
 
         self.highscores = {}
         self.load_highscores()
@@ -144,22 +205,7 @@ class MathTrainer(App):
             try:
                 self._activity = PythonActivity.mActivity
                 self._activity.bind(on_activity_result=self._on_activity_result)
-                self._vibrator = None
-                try:
-                    api = int(Build_VERSION.SDK_INT)
-                except Exception:
-                    api = 0
-
-                if api >= 31 and VibratorManager is not None:
-                    try:
-                        mgr = self._activity.getSystemService(Context.VIBRATOR_MANAGER_SERVICE)
-                        if mgr:
-                            self._vibrator = mgr.getDefaultVibrator()
-                    except Exception:
-                        self._vibrator = None
-
-                if self._vibrator is None:
-                    self._vibrator = self._activity.getSystemService(Context.VIBRATOR_SERVICE)
+                self._vibrator = self._get_vibrator()
             except Exception:
                 self._activity = None
                 self._vibrator = None
@@ -266,18 +312,129 @@ class MathTrainer(App):
     # -------------------------
     # Vibration (Android)
     # -------------------------
+    def _get_vibrator(self):
+        if not IS_ANDROID or not self._activity:
+            return None
+        try:
+            api = int(Build_VERSION.SDK_INT)
+        except Exception:
+            api = 0
+
+        vib = None
+        if api >= 31 and VibratorManager is not None:
+            try:
+                mgr = self._activity.getSystemService(Context.VIBRATOR_MANAGER_SERVICE)
+                if mgr:
+                    vib = mgr.getDefaultVibrator()
+            except Exception:
+                vib = None
+
+        if vib is None:
+            try:
+                vib = self._activity.getSystemService(Context.VIBRATOR_SERVICE)
+            except Exception:
+                vib = None
+
+        return vib
+
+    def _try_haptic_feedback(self):
+        if not IS_ANDROID or not self._activity:
+            return False
+        try:
+            view = self._activity.getWindow().getDecorView()
+            return bool(view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP))
+        except Exception:
+            return False
+
+    # -------------------------
+    # iOS Haptics / Share / Files
+    # -------------------------
+    def _ios_present_view_controller(self, vc):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            return False
+        try:
+            UIApplication = objc_autoclass("UIApplication")
+            app = UIApplication.sharedApplication()
+            window = app.keyWindow()
+            if window is None:
+                windows = app.windows()
+                if windows and windows.count() > 0:
+                    window = windows.objectAtIndex_(0)
+            if window is None:
+                return False
+            root = window.rootViewController()
+            if root is None:
+                return False
+            root.presentViewController_animated_completion_(vc, True, None)
+            return True
+        except Exception:
+            return False
+
+    def _ios_haptic(self, success: bool):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            return False
+        try:
+            UINotificationFeedbackGenerator = objc_autoclass("UINotificationFeedbackGenerator")
+            gen = UINotificationFeedbackGenerator.alloc().init()
+            gen.prepare()
+            # 0 = Success, 1 = Warning, 2 = Error
+            gen.notificationOccurred_(0 if success else 2)
+            return True
+        except Exception:
+            return False
+
+    def _ios_share_image(self, path: str, title: str = "Teilen"):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            return False
+        try:
+            UIImage = objc_autoclass("UIImage")
+            UIActivityViewController = objc_autoclass("UIActivityViewController")
+            NSArray = objc_autoclass("NSArray")
+            image = UIImage.imageWithContentsOfFile_(objc_str(path))
+            if image is None:
+                return False
+            items = NSArray.arrayWithObject_(image)
+            vc = UIActivityViewController.alloc().initWithActivityItems_applicationActivities_(items, None)
+            return self._ios_present_view_controller(vc)
+        except Exception:
+            return False
+
+    def _ios_share_file(self, path: str, title: str = "Teilen"):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            return False
+        try:
+            NSURL = objc_autoclass("NSURL")
+            UIActivityViewController = objc_autoclass("UIActivityViewController")
+            NSArray = objc_autoclass("NSArray")
+            url = NSURL.fileURLWithPath_(objc_str(path))
+            items = NSArray.arrayWithObject_(url)
+            vc = UIActivityViewController.alloc().initWithActivityItems_applicationActivities_(items, None)
+            return self._ios_present_view_controller(vc)
+        except Exception:
+            return False
+
     def vibrate(self, times=1):
-        if not IS_ANDROID or not self._vibrator:
-            return
+        if IS_IOS:
+            # Use iOS haptics; no multi-pulse support here
+            return self._ios_haptic(success=(times <= 1))
+        if not IS_ANDROID:
+            return False
+
+        if not self._vibrator:
+            self._vibrator = self._get_vibrator()
+        if not self._vibrator:
+            return self._try_haptic_feedback()
 
         try:
             if hasattr(self._vibrator, "hasVibrator") and not self._vibrator.hasVibrator():
-                return
+                return self._try_haptic_feedback()
         except Exception:
             pass
 
         pulse_ms = 140
         gap_ms = 90
+
+        scheduled = False
 
         def _pulse(_dt):
             try:
@@ -288,12 +445,68 @@ class MathTrainer(App):
                 else:
                     self._vibrator.vibrate(pulse_ms)
             except Exception:
-                pass
+                self._try_haptic_feedback()
 
         t = 0.0
         for _ in range(max(1, int(times))):
             Clock.schedule_once(_pulse, t)
             t += (pulse_ms + gap_ms) / 1000.0
+            scheduled = True
+
+        return scheduled
+
+    def _tone_path(self, name: str) -> str:
+        os.makedirs(self.user_data_dir, exist_ok=True)
+        return os.path.join(self.user_data_dir, name)
+
+    def _generate_tone(self, path: str, freq: float, duration: float, volume: float = 0.35):
+        sample_rate = 44100
+        frames = int(sample_rate * max(0.05, duration))
+        amp = int(32767 * max(0.0, min(1.0, volume)))
+        with wave.open(path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            for i in range(frames):
+                s = int(amp * math.sin(2.0 * math.pi * freq * (i / sample_rate)))
+                wf.writeframes(struct.pack("<h", s))
+
+    def _ensure_feedback_sounds(self):
+        if self._sounds_ready:
+            return
+        self._sounds_ready = True
+
+        try:
+            success_path = self._tone_path("success.wav")
+            fail_path = self._tone_path("failure.wav")
+
+            if not os.path.exists(success_path):
+                self._generate_tone(success_path, freq=880.0, duration=0.14)
+            if not os.path.exists(fail_path):
+                self._generate_tone(fail_path, freq=220.0, duration=0.22)
+
+            self._sound_success = SoundLoader.load(success_path)
+            self._sound_failure = SoundLoader.load(fail_path)
+        except Exception:
+            self._sound_success = None
+            self._sound_failure = None
+
+    def _play_feedback_sound(self, success: bool):
+        self._ensure_feedback_sounds()
+        sound = self._sound_success if success else self._sound_failure
+        if sound:
+            try:
+                sound.stop()
+            except Exception:
+                pass
+            sound.play()
+
+    def _feedback(self, success: bool):
+        if IS_IOS and self._ios_haptic(success):
+            return
+        if self.vibrate(1 if success else 2):
+            return
+        self._play_feedback_sound(success)
 
     # -------------------------
     # Highscore persistence (App.user_data_dir)
@@ -496,7 +709,13 @@ class MathTrainer(App):
             out_path = os.path.join(self.user_data_dir, self._backup_suggested_name())
             with open(out_path, "wb") as f:
                 f.write(data)
-            self._set_about_status(f"Backup gespeichert:\n{out_path}")
+            if IS_IOS:
+                if self._ios_share_file(out_path, title="Backup exportieren"):
+                    self._set_about_status("Backup bereit zum Teilen/Speichern (Dateien-App).")
+                else:
+                    self._set_about_status(f"Backup gespeichert:\n{out_path}")
+            else:
+                self._set_about_status(f"Backup gespeichert:\n{out_path}")
         except Exception as e:
             self._set_about_status(f"Export-Fehler: {e}")
 
@@ -517,7 +736,33 @@ class MathTrainer(App):
                 self._set_about_status(f"Import-Fehler: {e}")
             return
 
+        if IS_IOS:
+            self._ios_import_backup_via_picker()
+            return
+
         self._set_about_status("Import ist auf Desktop hier nicht implementiert.")
+
+    def _ios_import_backup_via_picker(self):
+        if not IS_IOS or not _HAVE_PYOBJUS:
+            self._set_about_status("Import nicht möglich: iOS/pyobjus fehlt.")
+            return
+        try:
+            UIDocumentPickerViewController = objc_autoclass("UIDocumentPickerViewController")
+            NSArray = objc_autoclass("NSArray")
+            types = NSArray.arrayWithObject_(objc_str("public.data"))
+            # 0 = UIDocumentPickerModeImport
+            picker = UIDocumentPickerViewController.alloc().initWithDocumentTypes_inMode_(types, 0)
+            delegate = IOSDocPickerDelegate.alloc().initWithOwner_(self)
+            self._ios_doc_picker_delegate = delegate
+            picker.setDelegate_(delegate)
+            try:
+                picker.setModalPresentationStyle_(1)
+            except Exception:
+                pass
+            if not self._ios_present_view_controller(picker):
+                self._set_about_status("Import nicht möglich: UI konnte nicht geöffnet werden.")
+        except Exception as e:
+            self._set_about_status(f"Import-Fehler: {e}")
 
     def _on_activity_result(self, request_code, result_code, intent):
         # Android.RESULT_OK = -1
@@ -803,6 +1048,9 @@ class MathTrainer(App):
             # Android: teilen
             if IS_ANDROID and self._activity:
                 self._android_share_image_via_mediastore(out_path, title="Highscore teilen")
+            elif IS_IOS:
+                if not self._ios_share_image(out_path, title="Highscore teilen"):
+                    self._preview_exported_image(out_path)
             else:
                 # Desktop: wenigstens anzeigen
                 self._preview_exported_image(out_path)
@@ -1181,7 +1429,7 @@ Weitere Details finden Sie unter https://dfsl.de
         if user_answer == correct_answer:
             result_text = f"{user_answer[0]}" + (f" R{user_answer[1]}" if user_answer[1] else "") + " ist RICHTIG!"
             self.points += points_awarded
-            self.vibrate(1)
+            self._feedback(True)
             self.prev_question_label.color = (0, 1, 0, 1)
         else:
             correct_text = f"{correct_answer[0]}" + (f" R{correct_answer[1]}" if correct_answer[1] else "")
@@ -1190,7 +1438,7 @@ Weitere Details finden Sie unter https://dfsl.de
                 f" ist FALSCH!\n>>> {self.question} = {correct_text} <<<"
             )
             self.points = max(0, self.points + points_awarded)
-            self.vibrate(2)
+            self._feedback(False)
             self.prev_question_label.color = (1, 0, 0, 1)
 
         self.prev_question_label.text = result_text
