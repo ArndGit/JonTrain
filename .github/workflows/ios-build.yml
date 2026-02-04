@@ -47,11 +47,11 @@ jobs:
       - name: Install Buildozer
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install buildozer "cython==0.29.33" pbxproj cookiecutter
+          python -m pip install buildozer "cython==0.29.33" pbxproj cookiecutter Pillow
 
       - name: Build iOS (debug)
         run: |
-          buildozer ios debug
+          python -m buildozer ios debug
 
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
