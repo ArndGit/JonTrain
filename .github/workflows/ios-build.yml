@@ -53,18 +53,23 @@ jobs:
         run: |
           python -m buildozer ios debug
 
+      - name: Collect iOS artifacts
+        run: |
+          mkdir -p artifacts/ios
+          find . -type f -name "*.ipa" -print -exec cp "{}" artifacts/ios/ \;
+          find . -type d -name "*.app" -print -exec ditto -c -k --sequesterRsrc --keepParent "{}" "artifacts/ios/$(basename "{}").zip" \;
+
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-debug-${{ github.run_id }}
           path: |
-            bin/*.ipa
-            bin/*.app
+            artifacts/ios/*
+          if-no-files-found: error
 
       - name: Upload iOS build to GitHub Release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            bin/*.ipa
-            bin/*.app
+            artifacts/ios/*
