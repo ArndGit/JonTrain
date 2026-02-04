@@ -49,20 +49,27 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install buildozer "cython==0.29.33" pbxproj cookiecutter Pillow
 
-      - name: Build iOS (debug)
+      - name: Build iOS (debug, unsigned)
+        continue-on-error: true
         run: |
           python -m buildozer ios debug
 
       - name: Collect iOS artifacts
         run: |
           mkdir -p artifacts/ios
-          find . -type f -name "*.ipa" -print -exec cp "{}" artifacts/ios/ \;
-          find . -type d -name "*.app" -print -exec ditto -c -k --sequesterRsrc --keepParent "{}" "artifacts/ios/$(basename "{}").zip" \;
+          apps=$(find . -type d -name "jontrain.app" -print)
+          if [ -z "$apps" ]; then
+            echo "No jontrain.app found. Build likely failed before producing the .app."
+            exit 1
+          fi
+          for app in $apps; do
+            ditto -c -k --sequesterRsrc --keepParent "$app" "artifacts/ios/jontrain.app.zip"
+          done
 
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ios-debug-${{ github.run_id }}
+          name: ios-debug-unsigned-${{ github.run_id }}
           path: |
             artifacts/ios/*
           if-no-files-found: error
